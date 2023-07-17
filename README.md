@@ -57,5 +57,21 @@ Notice `exts` is repo subfolder with extensions. More information can be found i
 To add a link to your *Omniverse Kit* based app go into: Extension Manager -> Gear Icon -> Extension Search Path
 
 
+# Troubleshooting
+
+While working in Composer, add the following snippet:
+
+ 
+```
+[python.pipapi]
+
+requirements = [
+    "requests"
+]
+
+use_online_index = true
+```
+ 
+
 ## Contributing
 The source code for this repository is provided as-is and we are not accepting outside contributions.
