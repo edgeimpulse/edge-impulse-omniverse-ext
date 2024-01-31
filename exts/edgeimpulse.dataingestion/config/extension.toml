@@ -3,8 +3,8 @@
 version = "1.0.0"
 
 # The title and description fields are primarily for displaying extension info in UI
-title = "Edge Impulse Data Ingestion"
-description="Edge Impulse Data Ingestion extension for Omniverse."
+title = "Edge Impulse"
+description="Edge Impulse extension for Omniverse."
 
 # Path (relative to the root) or content of readme markdown file for UI.
 readme  = "docs/README.md"
@@ -37,3 +37,7 @@ name = "edgeimpulse.dataingestion"
 dependencies = [
     "omni.kit.ui_test" # UI testing extension
 ]
+
+[python.pipapi]
+requirements = ["tensorflow"]
+use_online_index = true
