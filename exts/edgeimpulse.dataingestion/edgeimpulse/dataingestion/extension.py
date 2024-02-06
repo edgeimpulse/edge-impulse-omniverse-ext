@@ -2,10 +2,8 @@
 
 import omni.ext
 import omni.ui as ui
+from omni.kit.window.file_importer import get_file_importer
 import asyncio
-import aiohttp
-from omni.ui import style_utils
-from functools import partial
 import requests
 import os
 
@@ -74,11 +72,10 @@ class DataIngestion(omni.ext.IExt):
 
                 with ui.HStack(height=20):
                     ui.Spacer(width=3)
-                    data_path_label = ui.Label("Data Path", width=70)
+                    ui.Label("Data Path", width=70)
                     ui.Spacer(width=8)
-                    data_path = ui.StringField(name="path")
-                    data_path.model.set_value("C:\\Users\\...")
-                    data_path.model.add_value_changed_fn(lambda m, label=data_path_label: getPath(data_path_label, m.get_value_as_string()))
+                    self.data_path_display = ui.Label("No folder selected", width=250)
+                    ui.Button("Select Folder", clicked_fn=self.select_folder)
                     ui.Spacer(width=3)
 
                 with ui.HStack(height=20):
@@ -112,6 +109,23 @@ class DataIngestion(omni.ext.IExt):
                     ui.Spacer(width=3)
                     results_label = ui.Label("", height=20, word_wrap=True)
                 
+
+    def select_folder(self):
+        def import_handler(filename: str, dirname: str, selections: list = []):
+            if dirname:
+                self.data_path_display.text = dirname
+                self.DATA_FOLDER = dirname
+            else:
+                print("No folder selected")
+
+        file_importer = get_file_importer()
+        file_importer.show_window(
+            title="Select Data Folder",
+            show_only_folders=True,
+            import_handler=import_handler,
+            import_button_label="Select"
+        )
+
 
     def on_shutdown(self):
         print("[edgeimpulse.dataingestion] Edge Impulse Data Ingestion shutdown")
