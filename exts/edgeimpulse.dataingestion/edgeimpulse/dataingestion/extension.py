@@ -32,25 +32,21 @@ class Config:
         self.save_config()
 
 
-async def upload_data(api_key, data_folder, dataset):
+async def upload_data(api_key, data_folder, dataset, log_callback):
     dataset_types = ["training", "testing", "anomaly"]
-    upload_log = []  # Initialize the log variable to store upload statuses
-
     if dataset not in dataset_types:
-        return "Error: Dataset type invalid (must be training, testing, or anomaly)."
+        log_callback(
+            "Error: Dataset type invalid (must be training, testing, or anomaly)."
+        )
+        return
 
     url = "https://ingestion.edgeimpulse.com/api/" + dataset + "/files"
-
     try:
-        print(f"Data folder {data_folder}")
         for file in os.listdir(data_folder):
             file_path = os.path.join(data_folder, file)
-            label = os.path.basename(file_path).split(".")[
-                0
-            ]  # Extract label from filename
-            print(f"file_path {file_path} label {label}")
-
+            label = os.path.basename(file_path).split(".")[0]
             if os.path.isfile(file_path):
+                await asyncio.sleep(1)
                 try:
                     with open(file_path, "rb") as file_data:
                         res = requests.post(
@@ -65,28 +61,23 @@ async def upload_data(api_key, data_folder, dataset):
                                     os.path.basename(file_path),
                                     file_data,
                                     "image/png",
-                                ),
+                                )
                             },
                         )
-                        # Append success or error message to upload_log
                         if res.status_code == 200:
-                            upload_log.append(
-                                f"Success: {file_path} uploaded successfully."
-                            )
+                            print(f"Uploaded {file_path}")
+                            log_callback(f"Success: {file_path} uploaded successfully.")
                         else:
-                            upload_log.append(
+                            print(f"Error uploading {file_path} {res.text}")
+                            log_callback(
                                 f"Error: {file_path} failed to upload. Status Code {res.status_code}: {res.text}"
                             )
                 except Exception as e:
-                    upload_log.append(
+                    log_callback(
                         f"Error: Failed to process {file_path}. Exception: {str(e)}"
                     )
-
     except FileNotFoundError:
-        return "Error: Data Path invalid."
-
-    # Convert upload_log list to a string if needed or return as is
-    return "\n".join(upload_log)  # Returns a single string with all log messages
+        log_callback("Error: Data Path invalid.")
 
 
 class EdgeImpulseExtension(omni.ext.IExt):
@@ -95,6 +86,8 @@ class EdgeImpulseExtension(omni.ext.IExt):
 
     def on_startup(self, ext_id):
         print("[edgeimpulse.dataingestion] Edge Impulse Data Ingestion startup")
+
+        self.log_text = ""
 
         self._window = ui.Window("Edge Impulse Data Ingestion", width=450, height=220)
         with self._window.frame:
@@ -152,32 +145,42 @@ class EdgeImpulseExtension(omni.ext.IExt):
                                 break
                     ui.Spacer(width=3)
 
-                def on_click():
-                    # asyncio.ensure_future()
-                    loop = asyncio.get_event_loop()
-                    res = loop.run_until_complete(
-                        upload_data(
-                            self.config.get("api_key"),
-                            self.config.get("data_path"),
-                            self.config.get("dataset_type"),
-                        )
+                with ui.HStack(height=20):
+                    ui.Button(
+                        "Upload to Edge Impulse",
+                        clicked_fn=lambda: asyncio.ensure_future(
+                            upload_data(
+                                self.config.get("api_key"),
+                                self.config.get("data_path"),
+                                self.config.get("dataset_type"),
+                                add_log_entry,
+                            )
+                        ),
                     )
-                    results_label.text = res
+
+                # Scrolling Frame for Logs
+                with ui.ScrollingFrame(height=100):
+                    self.log_label = ui.Label("", word_wrap=True)
+
+                def add_log_entry(message):
+                    self.log_text += message + "\n"
+                    self.log_label.text = self.log_text
+                    self.update_clear_button_visibility()
+
+                def clear_logs():
+                    self.log_text = ""
+                    self.log_label.text = self.log_text
+                    self.update_clear_button_visibility()
 
                 with ui.HStack(height=20):
-                    ui.Button("Upload to Edge Impulse", clicked_fn=on_click)
-
-                with ui.HStack(height=20):
-                    ui.Spacer(width=3)
-                    results_label = ui.Label("", height=20, word_wrap=True)
+                    self.clear_button = ui.Button("Clear Logs", clicked_fn=clear_logs)
+                    self.clear_button.visible = False
 
     def select_folder(self):
         def import_handler(filename: str, dirname: str, selections: list = []):
             if dirname:
                 self.data_path_display.text = dirname
-                EdgeImpulseExtension.config.set(
-                    "data_path", dirname
-                )  # Save the selected folder to the config
+                EdgeImpulseExtension.config.set("data_path", dirname)
             else:
                 print("No folder selected")
 
@@ -201,6 +204,9 @@ class EdgeImpulseExtension(omni.ext.IExt):
         selected_index = self.dataset_type_dropdown.model.get_value_as_int()
         dataset_types = ["training", "testing", "anomaly"]
         return dataset_types[selected_index]
+
+    def update_clear_button_visibility(self):
+        self.clear_button.visible = bool(self.log_text)
 
     def on_shutdown(self):
         print("[edgeimpulse.dataingestion] Edge Impulse Data Ingestion shutdown")
