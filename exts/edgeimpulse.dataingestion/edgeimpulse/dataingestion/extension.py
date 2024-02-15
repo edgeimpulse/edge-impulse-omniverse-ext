@@ -34,42 +34,59 @@ class Config:
 
 async def upload_data(api_key, data_folder, dataset):
     dataset_types = ["training", "testing", "anomaly"]
+    upload_log = []  # Initialize the log variable to store upload statuses
+
     if dataset not in dataset_types:
         return "Error: Dataset type invalid (must be training, testing, or anomaly)."
+
     url = "https://ingestion.edgeimpulse.com/api/" + dataset + "/files"
+
     try:
         print(f"Data folder {data_folder}")
         for file in os.listdir(data_folder):
             file_path = os.path.join(data_folder, file)
-            # Labels are determined from the filename, anything after "." is ignored, i.e.
-            # File "object.1.blah.png" will be uploaded as file object.1.blah with label "object"
-            label = os.path.basename(file_path).split(".")[0]
+            label = os.path.basename(file_path).split(".")[
+                0
+            ]  # Extract label from filename
             print(f"file_path {file_path} label {label}")
+
             if os.path.isfile(file_path):
-                with open(file_path, "r") as file:
-                    res = requests.post(
-                        url=url,
-                        headers={
-                            "x-label": label,
-                            "x-api-key": api_key,
-                            "x-disallow-duplicates": "1",
-                        },
-                        files={
-                            "data": (
-                                os.path.basename(file_path),
-                                open(file_path, "rb"),
-                                "image/png",
+                try:
+                    with open(file_path, "rb") as file_data:
+                        res = requests.post(
+                            url=url,
+                            headers={
+                                "x-label": label,
+                                "x-api-key": api_key,
+                                "x-disallow-duplicates": "1",
+                            },
+                            files={
+                                "data": (
+                                    os.path.basename(file_path),
+                                    file_data,
+                                    "image/png",
+                                ),
+                            },
+                        )
+                        # Append success or error message to upload_log
+                        if res.status_code == 200:
+                            upload_log.append(
+                                f"Success: {file_path} uploaded successfully."
                             )
-                        },
+                        else:
+                            upload_log.append(
+                                f"Error: {file_path} failed to upload. Status Code {res.status_code}: {res.text}"
+                            )
+                except Exception as e:
+                    upload_log.append(
+                        f"Error: Failed to process {file_path}. Exception: {str(e)}"
                     )
-            if res.status_code == 200:
-                return res.text
-            else:
-                return str(
-                    "Error: Status Code " + str(res.status_code) + ": " + res.text
-                )
+
     except FileNotFoundError:
         return "Error: Data Path invalid."
+
+    # Convert upload_log list to a string if needed or return as is
+    return "\n".join(upload_log)  # Returns a single string with all log messages
 
 
 class EdgeImpulseExtension(omni.ext.IExt):
