@@ -32,7 +32,7 @@ class Config:
         self.save_config()
 
 
-async def upload_data(api_key, data_folder, dataset, log_callback):
+async def upload_data(api_key, data_folder, dataset, log_callback, on_upload_complete):
     dataset_types = ["training", "testing", "anomaly"]
     if dataset not in dataset_types:
         log_callback(
@@ -78,6 +78,7 @@ async def upload_data(api_key, data_folder, dataset, log_callback):
                     )
     except FileNotFoundError:
         log_callback("Error: Data Path invalid.")
+    on_upload_complete()
 
 
 class EdgeImpulseExtension(omni.ext.IExt):
@@ -88,6 +89,7 @@ class EdgeImpulseExtension(omni.ext.IExt):
         print("[edgeimpulse.dataingestion] Edge Impulse Data Ingestion startup")
 
         self.log_text = ""
+        self.uploading = False
 
         self._window = ui.Window("Edge Impulse Data Ingestion", width=450, height=220)
         with self._window.frame:
@@ -146,34 +148,18 @@ class EdgeImpulseExtension(omni.ext.IExt):
                     ui.Spacer(width=3)
 
                 with ui.HStack(height=20):
-                    ui.Button(
-                        "Upload to Edge Impulse",
-                        clicked_fn=lambda: asyncio.ensure_future(
-                            upload_data(
-                                self.config.get("api_key"),
-                                self.config.get("data_path"),
-                                self.config.get("dataset_type"),
-                                add_log_entry,
-                            )
-                        ),
+                    self.upload_button = ui.Button(
+                        "Upload to Edge Impulse", clicked_fn=lambda: self.start_upload()
                     )
 
                 # Scrolling Frame for Logs
                 with ui.ScrollingFrame(height=100):
                     self.log_label = ui.Label("", word_wrap=True)
 
-                def add_log_entry(message):
-                    self.log_text += message + "\n"
-                    self.log_label.text = self.log_text
-                    self.update_clear_button_visibility()
-
-                def clear_logs():
-                    self.log_text = ""
-                    self.log_label.text = self.log_text
-                    self.update_clear_button_visibility()
-
                 with ui.HStack(height=20):
-                    self.clear_button = ui.Button("Clear Logs", clicked_fn=clear_logs)
+                    self.clear_button = ui.Button(
+                        "Clear Logs", clicked_fn=self.clear_logs
+                    )
                     self.clear_button.visible = False
 
     def select_folder(self):
@@ -205,8 +191,38 @@ class EdgeImpulseExtension(omni.ext.IExt):
         dataset_types = ["training", "testing", "anomaly"]
         return dataset_types[selected_index]
 
+    def add_log_entry(self, message):
+        self.log_text += message + "\n"
+        self.log_label.text = self.log_text
+        self.update_clear_button_visibility()
+
+    def clear_logs(self):
+        self.log_text = ""
+        self.log_label.text = self.log_text
+        self.update_clear_button_visibility()
+
     def update_clear_button_visibility(self):
         self.clear_button.visible = bool(self.log_text)
+
+    def start_upload(self):
+        if not self.uploading:  # Prevent multiple uploads at the same time
+            self.uploading = True
+            self.upload_button.text = "Uploading..."
+
+            async def upload():
+                await upload_data(
+                    self.config.get("api_key"),
+                    self.config.get("data_path"),
+                    self.config.get("dataset_type"),
+                    self.add_log_entry,
+                    self.on_upload_complete,
+                )
+
+            asyncio.ensure_future(upload())
+
+    def on_upload_complete(self):
+        self.uploading = False
+        self.upload_button.text = "Upload to Edge Impulse"
 
     def on_shutdown(self):
         print("[edgeimpulse.dataingestion] Edge Impulse Data Ingestion shutdown")
