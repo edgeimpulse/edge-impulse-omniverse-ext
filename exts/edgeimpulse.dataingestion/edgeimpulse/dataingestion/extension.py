@@ -38,11 +38,13 @@ async def upload_data(api_key, data_folder, dataset):
         return "Error: Dataset type invalid (must be training, testing, or anomaly)."
     url = "https://ingestion.edgeimpulse.com/api/" + dataset + "/files"
     try:
+        print(f"Data folder {data_folder}")
         for file in os.listdir(data_folder):
             file_path = os.path.join(data_folder, file)
             # Labels are determined from the filename, anything after "." is ignored, i.e.
             # File "object.1.blah.png" will be uploaded as file object.1.blah with label "object"
             label = os.path.basename(file_path).split(".")[0]
+            print(f"file_path {file_path} label {label}")
             if os.path.isfile(file_path):
                 with open(file_path, "r") as file:
                     res = requests.post(
@@ -68,19 +70,6 @@ async def upload_data(api_key, data_folder, dataset):
                 )
     except FileNotFoundError:
         return "Error: Data Path invalid."
-
-
-def getPath(label, text):
-    EdgeImpulseExtension.config.set("data_path", text)
-    label.text = text
-
-
-def getEIAPIKey(label, text):
-    EdgeImpulseExtension.config.set("api_key", text)
-
-
-def getDatasetType(label, text):
-    EdgeImpulseExtension.config.set("dataset_type", text)
 
 
 class EdgeImpulseExtension(omni.ext.IExt):
@@ -121,9 +110,7 @@ class EdgeImpulseExtension(omni.ext.IExt):
                     ei_api_key = ui.StringField(name="ei_api_key")
                     ei_api_key.model.set_value(api_key)
                     ei_api_key.model.add_value_changed_fn(
-                        lambda m, label=ei_api_key: getEIAPIKey(
-                            label, m.get_value_as_string()
-                        )
+                        lambda m: self.config.set("api_key", m.get_value_as_string())
                     )
                     ui.Spacer(width=3)
 
@@ -152,7 +139,11 @@ class EdgeImpulseExtension(omni.ext.IExt):
                     # asyncio.ensure_future()
                     loop = asyncio.get_event_loop()
                     res = loop.run_until_complete(
-                        upload_data(self.API_KEY, self.DATA_FOLDER, self.DATASET)
+                        upload_data(
+                            self.config.get("api_key"),
+                            self.config.get("data_path"),
+                            self.config.get("dataset_type"),
+                        )
                     )
                     results_label.text = res
 
