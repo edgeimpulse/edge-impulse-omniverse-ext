@@ -3,15 +3,18 @@
 import omni.ext
 import omni.ui as ui
 from omni.kit.window.file_importer import get_file_importer
+from omni.kit.window.popup_dialog import MessageDialog
 import asyncio
 
 from .config import Config
 from .uploader import upload_data
+from .classifier import Classifier, ClassifierError
 
 
 class EdgeImpulseExtension(omni.ext.IExt):
 
     config = Config()
+    classifier = None
 
     def on_startup(self, ext_id):
         print("[edgeimpulse.dataingestion] Edge Impulse Data Ingestion startup")
@@ -90,6 +93,12 @@ class EdgeImpulseExtension(omni.ext.IExt):
                     )
                     self.clear_button.visible = False
 
+                with ui.HStack(height=20):
+                    self.classify_button = ui.Button(
+                        "Classify",
+                        clicked_fn=lambda: asyncio.ensure_future(self.start_classify()),
+                    )
+
     def select_folder(self):
         def import_handler(filename: str, dirname: str, selections: list = []):
             if dirname:
@@ -151,6 +160,42 @@ class EdgeImpulseExtension(omni.ext.IExt):
     def on_upload_complete(self):
         self.uploading = False
         self.upload_button.text = "Upload to Edge Impulse"
+
+    async def start_classify(self):
+        if not self.classifier:
+            api_key = self.config.get("api_key")
+            self.classifier = Classifier(api_key)
+
+        def show_message_dialog(title, message, warning=None):
+            MessageDialog(
+                title=title,
+                message=message,
+                warning_message=warning,
+                disable_cancel_button=True,
+            )
+
+        result = await self.classifier.classify()
+        if result == ClassifierError.SUCCESS:
+            show_message_dialog("Success", "Classification completed successfully.")
+        elif result == ClassifierError.NODEJS_NOT_INSTALLED:
+            show_message_dialog(
+                "Error",
+                "Wasmer is not installed. Please install Wasmer to classify your data.",
+            )
+        elif result == ClassifierError.FAILED_TO_RETRIEVE_PROJECT_ID:
+            show_message_dialog(
+                "Error", "Failed to retrieve project ID. Please check your API key."
+            )
+        elif result == ClassifierError.MODEL_DEPLOYMENT_NOT_AVAILABLE:
+            show_message_dialog(
+                "Error",
+                "Model deployment is not available. Please ensure the model is deployed.",
+            )
+        elif result == ClassifierError.FAILED_TO_DOWNLOAD_MODEL:
+            show_message_dialog(
+                "Error",
+                "Failed to download the model. Please check your network connection and try again.",
+            )
 
     def on_shutdown(self):
         print("[edgeimpulse.dataingestion] Edge Impulse Data Ingestion shutdown")

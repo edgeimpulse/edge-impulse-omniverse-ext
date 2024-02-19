@@ -18,7 +18,7 @@ async def upload_data(api_key, data_folder, dataset, log_callback, on_upload_com
             file_path = os.path.join(data_folder, file)
             label = os.path.basename(file_path).split(".")[0]
             if os.path.isfile(file_path):
-                await asyncio.sleep(1)  # Simulated delay for demonstration
+                await asyncio.sleep(1)
                 try:
                     with open(file_path, "rb") as file_data:
                         res = requests.post(

@@ -37,3 +37,9 @@ name = "edgeimpulse.dataingestion"
 dependencies = [
     "omni.kit.ui_test" # UI testing extension
 ]
+
+[python.pipapi]
+requirements = [
+    "httpx==0.21.1"
+]
+use_online_index = true
