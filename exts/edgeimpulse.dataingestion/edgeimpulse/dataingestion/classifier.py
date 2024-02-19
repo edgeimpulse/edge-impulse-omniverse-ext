@@ -3,6 +3,10 @@ from enum import Enum, auto
 import os
 import zipfile
 import tempfile
+import numpy as np
+from omni.kit.widget.viewport.capture import ByteCapture
+import omni.isaac.core.utils.viewports as vp
+
 
 from .client import EdgeImpulseRestClient
 
@@ -91,10 +95,27 @@ class Classifier:
         except Exception as e:
             print(f"Failed to save or extract model: {e}")
 
+    async def capture_and_process_image(self):
+        def on_capture_completed(buffer, buffer_size, width, height, format):
+            print(f"Captured image resolution: {width} x {height}, Format: {format}")
+            # TODO process image and run inference
+
+        viewport_window_id = vp.get_id_from_index(0)
+        viewport_window = vp.get_window_from_id(viewport_window_id)
+        viewport_api = viewport_window.viewport_api
+
+        capture_delegate = ByteCapture(on_capture_completed)
+        capture = viewport_api.schedule_capture(capture_delegate)
+
+        await capture.wait_for_result()
+
     async def classify(self):
         result = await self.check_and_prepare_model()
         if result != ClassifierError.SUCCESS:
             return result
+
+        print("Capturing viewport...")
+        await self.capture_and_process_image()
 
         try:
             script_dir = os.path.join(
