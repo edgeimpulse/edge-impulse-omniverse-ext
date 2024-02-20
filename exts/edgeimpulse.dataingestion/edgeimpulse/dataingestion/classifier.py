@@ -1,9 +1,10 @@
 import subprocess
 from enum import Enum, auto
 import os
-import zipfile
 import tempfile
+import shutil
 import numpy as np
+import glob
 from omni.kit.widget.viewport.capture import ByteCapture
 import omni.isaac.core.utils.viewports as vp
 import ctypes
@@ -41,34 +42,37 @@ class Classifier:
         except (subprocess.CalledProcessError, FileNotFoundError):
             return False
 
-    async def check_and_prepare_model(self):
+    async def check_and_update_model(self):
         if not self.is_node_installed():
             print("NodeJS not installed")
             return ClassifierError.NODEJS_NOT_INSTALLED
 
+        self.projectId = await self.restClient.get_project_id()
         if self.projectId is None:
-            print("Fetching project information...")
-            self.projectId = await self.restClient.get_project_id()
-            if self.projectId is None:
-                print("Failed to retrieve project ID")
-                return ClassifierError.FAILED_TO_RETRIEVE_PROJECT_ID
+            print("Failed to retrieve project ID")
+            return ClassifierError.FAILED_TO_RETRIEVE_PROJECT_ID
 
-        model_dir = os.path.join(os.path.dirname(self.modelPath), "eimodel")
-        if os.path.exists(model_dir) and os.listdir(model_dir):
-            print("Model is already ready for classification.")
+        deployment_info = await self.restClient.get_deployment_info(self.projectId)
+        if not deployment_info:
+            print("Failed to get deployment info")
+            return ClassifierError.MODEL_DEPLOYMENT_NOT_AVAILABLE
+
+        current_version = deployment_info["version"]
+        model_dir_name = f"ei-model-{current_version}"
+        model_dir = os.path.join(os.path.dirname(self.modelPath), model_dir_name)
+
+        # Check if the model directory exists and its version
+        if os.path.exists(model_dir):
+            print("Latest model version already downloaded.")
             self.modelReady = True
             return ClassifierError.SUCCESS
 
-        print("Checking model availability...")
-        if not await self.restClient.check_model_deployment(self.projectId):
-            print("Model deployment not available")
-            return ClassifierError.MODEL_DEPLOYMENT_NOT_AVAILABLE
-
-        print("Downloading model ...")
+        # If the model directory for the current version does not exist, delete old versions and download the new one
+        self.delete_old_models(os.path.dirname(self.modelPath), model_dir_name)
+        print("Downloading model...")
         model_content = await self.restClient.download_model(self.projectId)
         if model_content is not None:
-            print("Saving model...")
-            self.save_model(model_content)
+            self.save_model(model_content, model_dir)
             self.modelReady = True
             print("Model is ready for classification.")
             return ClassifierError.SUCCESS
@@ -76,27 +80,27 @@ class Classifier:
             print("Failed to download the model")
             return ClassifierError.FAILED_TO_DOWNLOAD_MODEL
 
-    def save_model(self, model_content):
-        try:
-            eimodel_dir = os.path.join(os.path.dirname(self.modelPath), "eimodel")
-            if not os.path.exists(eimodel_dir):
-                os.makedirs(eimodel_dir)
-                print(f"'eimodel' directory created at {eimodel_dir}")
+    def delete_old_models(self, parent_dir, exclude_dir_name):
+        for dirname in os.listdir(parent_dir):
+            if dirname.startswith("ei-model-") and dirname != exclude_dir_name:
+                dirpath = os.path.join(parent_dir, dirname)
+                shutil.rmtree(dirpath)
+                print(f"Deleted old model directory: {dirpath}")
 
-            with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
-                tmp_file.write(model_content)
-                zip_path = tmp_file.name
-            print(f"Model zip saved temporarily to {zip_path}")
+    def save_model(self, model_content, model_dir):
+        if not os.path.exists(model_dir):
+            os.makedirs(model_dir)
+            print(f"'{model_dir}' directory created")
 
-            with zipfile.ZipFile(zip_path, "r") as zip_ref:
-                zip_ref.extractall(eimodel_dir)
-            print(f"Model extracted to {eimodel_dir}")
+        model_zip_path = os.path.join(model_dir, "model.zip")
+        with open(model_zip_path, "wb") as model_file:
+            model_file.write(model_content)
+        print(f"Model zip saved to {model_zip_path}")
 
-            os.remove(zip_path)
-            print(f"Temporary model zip removed.")
-
-        except Exception as e:
-            print(f"Failed to save or extract model: {e}")
+        # Extract the zip file
+        shutil.unpack_archive(model_zip_path, model_dir)
+        os.remove(model_zip_path)
+        print(f"Model extracted to {model_dir}")
 
     async def capture_and_process_image(self):
         def on_capture_completed(buffer, buffer_size, width, height, format):
@@ -121,7 +125,7 @@ class Classifier:
                 ) as tmp_file:
                     image.save(tmp_file, format="PNG")
                     self.viewportCaptureTmpFile = tmp_file
-                    print(f"Image saved to {self.temp_image_path}")
+                    print(f"Image saved to {tmp_file.name}")
 
             except Exception as e:
                 print(f"Failed to process and save image: {e}")
@@ -136,31 +140,38 @@ class Classifier:
         await capture.wait_for_result()
 
     async def classify(self):
-        result = await self.check_and_prepare_model()
+        result = await self.check_and_update_model()
         if result != ClassifierError.SUCCESS:
             return result
 
         await self.capture_and_process_image()
 
         try:
-            print(f"Attempting to run inference on {self.viewportCaptureTmpFile}")
-            if self.viewportCaptureTmpFile:
-                script_dir = os.path.join(
-                    os.path.dirname(self.modelPath), "eimodel", "node"
-                )
-                print(f"Running inference on {self.viewportCaptureTmpFile.name}")
-                process = subprocess.run(
-                    ["node", "run-impulse.js", self.viewportCaptureTmpFile.name],
-                    check=True,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                    cwd=script_dir,
-                )
-                print(process.stdout)
-                return ClassifierError.SUCCESS
+            model_dirs = glob.glob(
+                os.path.join(os.path.dirname(self.modelPath), "ei-model-*")
+            )
+            if model_dirs:
+                latest_model_dir = max(model_dirs, key=os.path.getctime)
+                print(f"Using latest model directory: {latest_model_dir}")
+
+                if self.viewportCaptureTmpFile:
+                    script_dir = os.path.join(latest_model_dir, "node")
+                    print(f"Running inference on {self.viewportCaptureTmpFile.name}")
+                    process = subprocess.run(
+                        ["node", "run-impulse.js", self.viewportCaptureTmpFile.name],
+                        check=True,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                        cwd=script_dir,
+                    )
+                    print(process.stdout)
+                    return ClassifierError.SUCCESS
+                else:
+                    return ClassifierError.FAILED_TO_PROCESS_VIEWPORT
             else:
-                return ClassifierError.FAILED_TO_PROCESS_VIEWPORT
+                print("No model directory found.")
+                return ClassifierError.FAILED_TO_DOWNLOAD_MODEL
         except subprocess.CalledProcessError as e:
             print(f"Error executing model classification: {e.stderr}")
             return ClassifierError.FAILED_TO_DOWNLOAD_MODEL

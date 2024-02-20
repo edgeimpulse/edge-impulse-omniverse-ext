@@ -17,21 +17,23 @@ class EdgeImpulseRestClient:
             else:
                 return None
 
-    async def check_model_deployment(self, projectId):
-        """Asynchronously checks if the model is deployed."""
+    async def get_deployment_info(self, projectId):
+        """Asynchronously retrieves deployment information, including version."""
         async with httpx.AsyncClient() as client:
             response = await client.get(
                 f"{self.base_url}{projectId}/deployment?type=wasm&engine=tflite",
                 headers=self.headers,
             )
-            if (
-                response.status_code == 200
-                and response.json().get("success")
-                and response.json().get("hasDeployment")
-            ):
-                return True
+            if response.status_code == 200 and response.json().get("success"):
+                # Returns the version number if available
+                version = response.json().get("version")
+                return {
+                    "version": version,
+                    "hasDeployment": response.json().get("hasDeployment"),
+                }
             else:
-                return False
+                # Returns None if the request failed or no deployment info was found
+                return None
 
     async def download_model(self, projectId):
         """Asynchronously downloads the model."""
