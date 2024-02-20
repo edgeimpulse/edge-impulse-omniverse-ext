@@ -6,7 +6,8 @@ import tempfile
 import numpy as np
 from omni.kit.widget.viewport.capture import ByteCapture
 import omni.isaac.core.utils.viewports as vp
-
+import ctypes
+from PIL import Image
 
 from .client import EdgeImpulseRestClient
 
@@ -17,6 +18,7 @@ class ClassifierError(Enum):
     FAILED_TO_RETRIEVE_PROJECT_ID = auto()
     MODEL_DEPLOYMENT_NOT_AVAILABLE = auto()
     FAILED_TO_DOWNLOAD_MODEL = auto()
+    FAILED_TO_PROCESS_VIEWPORT = auto()
 
 
 class Classifier:
@@ -25,6 +27,7 @@ class Classifier:
         self.projectId = None
         self.modelReady = False
         self.modelPath = os.path.expanduser("~/Desktop/model.zip")
+        self.viewportCaptureTmpFile = None
 
     def is_node_installed(self):
         try:
@@ -97,8 +100,31 @@ class Classifier:
 
     async def capture_and_process_image(self):
         def on_capture_completed(buffer, buffer_size, width, height, format):
-            print(f"Captured image resolution: {width} x {height}, Format: {format}")
-            # TODO process image and run inference
+            try:
+                image_size = width * height * 4
+                ctypes.pythonapi.PyCapsule_GetPointer.restype = ctypes.POINTER(
+                    ctypes.c_byte * image_size
+                )
+                ctypes.pythonapi.PyCapsule_GetPointer.argtypes = [
+                    ctypes.py_object,
+                    ctypes.c_char_p,
+                ]
+                content = ctypes.pythonapi.PyCapsule_GetPointer(buffer, None)
+                pointer = ctypes.cast(
+                    content, ctypes.POINTER(ctypes.c_byte * image_size)
+                )
+                np_arr = np.ctypeslib.as_array(pointer.contents)
+                image = Image.frombytes("RGBA", (width, height), np_arr.tobytes())
+
+                with tempfile.NamedTemporaryFile(
+                    delete=False, suffix=".png"
+                ) as tmp_file:
+                    image.save(tmp_file, format="PNG")
+                    self.viewportCaptureTmpFile = tmp_file
+                    print(f"Image saved to {self.temp_image_path}")
+
+            except Exception as e:
+                print(f"Failed to process and save image: {e}")
 
         viewport_window_id = vp.get_id_from_index(0)
         viewport_window = vp.get_window_from_id(viewport_window_id)
@@ -114,24 +140,27 @@ class Classifier:
         if result != ClassifierError.SUCCESS:
             return result
 
-        print("Capturing viewport...")
         await self.capture_and_process_image()
 
         try:
-            script_dir = os.path.join(
-                os.path.dirname(self.modelPath), "eimodel", "node"
-            )
-
-            process = subprocess.run(
-                ["node", "run-impulse.js", "123"],
-                check=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                cwd=script_dir,
-            )
-            print(process.stdout)
-            return ClassifierError.SUCCESS
+            print(f"Attempting to run inference on {self.viewportCaptureTmpFile}")
+            if self.viewportCaptureTmpFile:
+                script_dir = os.path.join(
+                    os.path.dirname(self.modelPath), "eimodel", "node"
+                )
+                print(f"Running inference on {self.viewportCaptureTmpFile.name}")
+                process = subprocess.run(
+                    ["node", "run-impulse.js", self.viewportCaptureTmpFile.name],
+                    check=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    cwd=script_dir,
+                )
+                print(process.stdout)
+                return ClassifierError.SUCCESS
+            else:
+                return ClassifierError.FAILED_TO_PROCESS_VIEWPORT
         except subprocess.CalledProcessError as e:
             print(f"Error executing model classification: {e.stderr}")
             return ClassifierError.FAILED_TO_DOWNLOAD_MODEL
