@@ -1,3 +1,4 @@
+import json
 import subprocess
 from enum import Enum, auto
 import os
@@ -27,8 +28,9 @@ class Classifier:
         self.restClient = EdgeImpulseRestClient(projectApiKey)
         self.projectId = None
         self.modelReady = False
+        # TODO allow users to specify output dir for models
         self.modelPath = os.path.expanduser("~/Desktop/model.zip")
-        self.viewportCaptureTmpFile = None
+        self.featuresTmpFile = None
 
     def is_node_installed(self):
         try:
@@ -102,6 +104,40 @@ class Classifier:
         os.remove(model_zip_path)
         print(f"Model extracted to {model_dir}")
 
+    def resize_image_and_extract_features(
+        self, image, target_width, target_height, channel_count
+    ):
+        # Resize the image
+        img_resized = image.resize(
+            (target_width, target_height), Image.Resampling.LANCZOS
+        )
+
+        # Convert the image to the required color space
+        if channel_count == 3:  # RGB
+            img_resized = img_resized.convert("RGB")
+            img_array = np.array(img_resized)
+            # Extract RGB features as hexadecimal values
+            features = [
+                "0x{:02x}{:02x}{:02x}".format(*pixel)
+                for pixel in img_array.reshape(-1, 3)
+            ]
+        elif channel_count == 1:  # Grayscale
+            img_resized = img_resized.convert("L")
+            img_array = np.array(img_resized)
+            # Repeat the grayscale values to mimic the RGB structure
+            features = [
+                "0x{:02x}{:02x}{:02x}".format(pixel, pixel, pixel)
+                for pixel in img_array.flatten()
+            ]
+
+        return {
+            "features": features,
+            "originalWidth": image.width,
+            "originalHeight": image.height,
+            "newWidth": target_width,
+            "newHeight": target_height,
+        }
+
     async def capture_and_process_image(self):
         def on_capture_completed(buffer, buffer_size, width, height, format):
             try:
@@ -120,12 +156,26 @@ class Classifier:
                 np_arr = np.ctypeslib.as_array(pointer.contents)
                 image = Image.frombytes("RGBA", (width, height), np_arr.tobytes())
 
-                with tempfile.NamedTemporaryFile(
-                    delete=False, suffix=".png"
-                ) as tmp_file:
-                    image.save(tmp_file, format="PNG")
-                    self.viewportCaptureTmpFile = tmp_file
-                    print(f"Image saved to {tmp_file.name}")
+                # Directly use the image for resizing and feature extraction
+                # TODO test values, get them from impulse
+                target_width = 320
+                target_height = 320
+                channel_count = 3  # 3 for RGB, 1 for grayscale
+                resized_info = self.resize_image_and_extract_features(
+                    image, target_width, target_height, channel_count
+                )
+                features = resized_info["features"]
+                features_str = ",".join(features)
+
+                try:
+                    with tempfile.NamedTemporaryFile(
+                        delete=False, suffix=".txt", mode="w+t"
+                    ) as tmp_file:
+                        tmp_file.write(features_str)
+                        self.featuresTmpFile = tmp_file.name
+                        print(f"Features saved to {tmp_file.name}")
+                except Exception as e:
+                    print(f"Failed to save features to file: {e}")
 
             except Exception as e:
                 print(f"Failed to process and save image: {e}")
@@ -154,11 +204,11 @@ class Classifier:
                 latest_model_dir = max(model_dirs, key=os.path.getctime)
                 print(f"Using latest model directory: {latest_model_dir}")
 
-                if self.viewportCaptureTmpFile:
+                if self.featuresTmpFile:
                     script_dir = os.path.join(latest_model_dir, "node")
-                    print(f"Running inference on {self.viewportCaptureTmpFile.name}")
+                    print(f"Running inference on {self.featuresTmpFile}")
                     process = subprocess.run(
-                        ["node", "run-impulse.js", self.viewportCaptureTmpFile.name],
+                        ["node", "run-impulse.js", self.featuresTmpFile],
                         check=True,
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE,

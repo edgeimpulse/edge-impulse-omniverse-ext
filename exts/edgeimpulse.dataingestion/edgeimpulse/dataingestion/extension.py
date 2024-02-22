@@ -22,7 +22,7 @@ class EdgeImpulseExtension(omni.ext.IExt):
         self.log_text = ""
         self.uploading = False
 
-        self._window = ui.Window("Edge Impulse Data Ingestion", width=450, height=220)
+        self._window = ui.Window("Edge Impulse", width=450, height=220)
         with self._window.frame:
             with ui.VStack(spacing=8):
 
