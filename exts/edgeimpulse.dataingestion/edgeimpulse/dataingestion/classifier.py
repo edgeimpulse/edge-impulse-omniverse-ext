@@ -1,4 +1,4 @@
-import json
+import asyncio
 import subprocess
 from enum import Enum, auto
 import os
@@ -10,6 +10,7 @@ from omni.kit.widget.viewport.capture import ByteCapture
 import omni.isaac.core.utils.viewports as vp
 import ctypes
 from PIL import Image
+from concurrent.futures import ThreadPoolExecutor
 
 from .client import EdgeImpulseRestClient
 
@@ -162,6 +163,7 @@ class Classifier:
                 target_width = 320
                 target_height = 320
                 channel_count = 3  # 3 for RGB, 1 for grayscale
+
                 resized_info = self.resize_image_and_extract_features(
                     image, target_width, target_height, channel_count
                 )
@@ -190,6 +192,25 @@ class Classifier:
 
         await capture.wait_for_result()
 
+    async def run_subprocess(self, command, cwd):
+        """Run the given subprocess command in a thread pool and capture its output."""
+        loop = asyncio.get_running_loop()
+
+        def subprocess_run():
+            # Execute the command and capture output
+            return subprocess.run(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                cwd=cwd,
+            )
+
+        with ThreadPoolExecutor() as pool:
+            # Run the blocking operation in the executor
+            result = await loop.run_in_executor(pool, subprocess_run)
+            return result
+
     async def classify(self):
         self.log_fn("Checking and updating model...")
         result = await self.check_and_update_model()
@@ -211,18 +232,25 @@ class Classifier:
                 if self.featuresTmpFile:
                     script_dir = os.path.join(latest_model_dir, "node")
                     self.log_fn(f"Running inference on {self.featuresTmpFile}")
-                    process = subprocess.run(
-                        ["node", "run-impulse.js", self.featuresTmpFile],
-                        check=True,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                        text=True,
-                        cwd=script_dir,
+                    command = ["node", "run-impulse.js", self.featuresTmpFile]
+
+                    # Run subprocess and capture its output
+                    process_result = await self.run_subprocess(command, script_dir)
+
+                    # Check the subprocess execution result
+                    if process_result.returncode == 0:
+                        self.log_fn("Classification completed successfully.")
+                        self.log_fn(process_result.stdout)  # Log stdout from subprocess
+                    else:
+                        self.log_fn(
+                            f"Classification failed: {process_result.stderr}"
+                        )  # Log stderr on error
+
+                    return (
+                        ClassifierError.SUCCESS
+                        if process_result.returncode == 0
+                        else ClassifierError.FAILED_TO_PROCESS_VIEWPORT
                     )
-                    self.log_fn(process.stdout)
-                    return ClassifierError.SUCCESS
-                else:
-                    return ClassifierError.FAILED_TO_PROCESS_VIEWPORT
             else:
                 self.log_fn("No model directory found.")
                 return ClassifierError.FAILED_TO_DOWNLOAD_MODEL

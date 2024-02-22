@@ -168,7 +168,11 @@ class EdgeImpulseExtension(omni.ext.IExt):
 
         try:
             self.classify_button.text = "Classifying..."
-            await self.classifier.classify()
+
+            async def classify():
+                await self.classifier.classify()
+
+            asyncio.ensure_future(classify())
         finally:
             self.classify_button.text = "Classify"
 
