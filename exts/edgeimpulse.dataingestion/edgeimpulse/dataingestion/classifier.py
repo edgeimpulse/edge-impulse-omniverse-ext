@@ -24,13 +24,14 @@ class ClassifierError(Enum):
 
 
 class Classifier:
-    def __init__(self, projectApiKey):
+    def __init__(self, projectApiKey, log_fn):
         self.restClient = EdgeImpulseRestClient(projectApiKey)
         self.projectId = None
         self.modelReady = False
         # TODO allow users to specify output dir for models
         self.modelPath = os.path.expanduser("~/Desktop/model.zip")
         self.featuresTmpFile = None
+        self.log_fn = log_fn
 
     def is_node_installed(self):
         try:
@@ -46,17 +47,17 @@ class Classifier:
 
     async def check_and_update_model(self):
         if not self.is_node_installed():
-            print("NodeJS not installed")
+            self.log_fn("Error: NodeJS not installed")
             return ClassifierError.NODEJS_NOT_INSTALLED
 
         self.projectId = await self.restClient.get_project_id()
         if self.projectId is None:
-            print("Failed to retrieve project ID")
+            self.log_fn("Error: Failed to retrieve project ID")
             return ClassifierError.FAILED_TO_RETRIEVE_PROJECT_ID
 
         deployment_info = await self.restClient.get_deployment_info(self.projectId)
         if not deployment_info:
-            print("Failed to get deployment info")
+            self.log_fn("Error: Failed to get deployment info")
             return ClassifierError.MODEL_DEPLOYMENT_NOT_AVAILABLE
 
         current_version = deployment_info["version"]
@@ -65,21 +66,21 @@ class Classifier:
 
         # Check if the model directory exists and its version
         if os.path.exists(model_dir):
-            print("Latest model version already downloaded.")
+            self.log_fn("Latest model version already downloaded.")
             self.modelReady = True
             return ClassifierError.SUCCESS
 
         # If the model directory for the current version does not exist, delete old versions and download the new one
         self.delete_old_models(os.path.dirname(self.modelPath), model_dir_name)
-        print("Downloading model...")
+        self.log_fn("Downloading model...")
         model_content = await self.restClient.download_model(self.projectId)
         if model_content is not None:
             self.save_model(model_content, model_dir)
             self.modelReady = True
-            print("Model is ready for classification.")
+            self.log_fn("Model is ready for classification.")
             return ClassifierError.SUCCESS
         else:
-            print("Failed to download the model")
+            self.log_fn("Error: Failed to download the model")
             return ClassifierError.FAILED_TO_DOWNLOAD_MODEL
 
     def delete_old_models(self, parent_dir, exclude_dir_name):
@@ -87,22 +88,22 @@ class Classifier:
             if dirname.startswith("ei-model-") and dirname != exclude_dir_name:
                 dirpath = os.path.join(parent_dir, dirname)
                 shutil.rmtree(dirpath)
-                print(f"Deleted old model directory: {dirpath}")
+                self.log_fn(f"Deleted old model directory: {dirpath}")
 
     def save_model(self, model_content, model_dir):
         if not os.path.exists(model_dir):
             os.makedirs(model_dir)
-            print(f"'{model_dir}' directory created")
+            self.log_fn(f"'{model_dir}' directory created")
 
         model_zip_path = os.path.join(model_dir, "model.zip")
         with open(model_zip_path, "wb") as model_file:
             model_file.write(model_content)
-        print(f"Model zip saved to {model_zip_path}")
+        self.log_fn(f"Model zip saved to {model_zip_path}")
 
         # Extract the zip file
         shutil.unpack_archive(model_zip_path, model_dir)
         os.remove(model_zip_path)
-        print(f"Model extracted to {model_dir}")
+        self.log_fn(f"Model extracted to {model_dir}")
 
     def resize_image_and_extract_features(
         self, image, target_width, target_height, channel_count
@@ -173,12 +174,12 @@ class Classifier:
                     ) as tmp_file:
                         tmp_file.write(features_str)
                         self.featuresTmpFile = tmp_file.name
-                        print(f"Features saved to {tmp_file.name}")
+                        self.log_fn(f"Features saved to {tmp_file.name}")
                 except Exception as e:
-                    print(f"Failed to save features to file: {e}")
+                    self.log_fn(f"Error: Failed to save features to file: {e}")
 
             except Exception as e:
-                print(f"Failed to process and save image: {e}")
+                self.log_fn(f"Error: Failed to process and save image: {e}")
 
         viewport_window_id = vp.get_id_from_index(0)
         viewport_window = vp.get_window_from_id(viewport_window_id)
@@ -190,10 +191,13 @@ class Classifier:
         await capture.wait_for_result()
 
     async def classify(self):
+        self.log_fn("Checking and updating model...")
         result = await self.check_and_update_model()
         if result != ClassifierError.SUCCESS:
+            self.log_fn(f"Failed to update model: {result.name}")
             return result
 
+        self.log_fn("Capturing and processing image...")
         await self.capture_and_process_image()
 
         try:
@@ -202,11 +206,11 @@ class Classifier:
             )
             if model_dirs:
                 latest_model_dir = max(model_dirs, key=os.path.getctime)
-                print(f"Using latest model directory: {latest_model_dir}")
+                self.log_fn(f"Using latest model directory: {latest_model_dir}")
 
                 if self.featuresTmpFile:
                     script_dir = os.path.join(latest_model_dir, "node")
-                    print(f"Running inference on {self.featuresTmpFile}")
+                    self.log_fn(f"Running inference on {self.featuresTmpFile}")
                     process = subprocess.run(
                         ["node", "run-impulse.js", self.featuresTmpFile],
                         check=True,
@@ -215,13 +219,13 @@ class Classifier:
                         text=True,
                         cwd=script_dir,
                     )
-                    print(process.stdout)
+                    self.log_fn(process.stdout)
                     return ClassifierError.SUCCESS
                 else:
                     return ClassifierError.FAILED_TO_PROCESS_VIEWPORT
             else:
-                print("No model directory found.")
+                self.log_fn("No model directory found.")
                 return ClassifierError.FAILED_TO_DOWNLOAD_MODEL
         except subprocess.CalledProcessError as e:
-            print(f"Error executing model classification: {e.stderr}")
+            self.log_fn(f"Error executing model classification: {e.stderr}")
             return ClassifierError.FAILED_TO_DOWNLOAD_MODEL
