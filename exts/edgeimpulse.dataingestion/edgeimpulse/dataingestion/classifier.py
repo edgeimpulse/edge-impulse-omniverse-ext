@@ -40,6 +40,7 @@ class Classifier:
         self.original_height = None
         self.new_width = None
         self.new_height = None
+        self.output_image_path = None
 
     def is_node_installed(self):
         try:
@@ -266,12 +267,12 @@ class Classifier:
             draw.rectangle(((x, y), (x + width, y + height)), outline="red", width=3)
 
         # TODO use user defined path to save the image with bounding boxes
-        output_image_path = os.path.join(
+        self.output_image_path = os.path.join(
             tempfile.gettempdir(), "captured_with_bboxes.png"
         )
         # Save the image
-        self.image.save(output_image_path)
-        self.log_fn(f"Image with bounding boxes saved to {output_image_path}")
+        self.image.save(self.output_image_path)
+        self.log_fn(f"Image with bounding boxes saved to {self.output_image_path}")
 
     async def classify(self):
         self.log_fn("Checking and updating model...")
@@ -331,7 +332,7 @@ class Classifier:
                                 )
                                 return (
                                     ClassifierError.SUCCESS,
-                                    output_dict["bounding_boxes"],
+                                    self.output_image_path,
                                 )
                             else:
                                 self.log_fn(

@@ -99,6 +99,14 @@ class EdgeImpulseExtension(omni.ext.IExt):
                     )
                     self.clear_button.visible = False
 
+                with ui.HStack(height=300):
+                    self.image_display = ui.Image(
+                        "",
+                        width=400,
+                        height=300,
+                    )
+                    self.image_display.visible = False
+
     def select_folder(self):
         def import_handler(filename: str, dirname: str, selections: list = []):
             if dirname:
@@ -170,8 +178,10 @@ class EdgeImpulseExtension(omni.ext.IExt):
             self.classify_button.text = "Classifying..."
 
             async def classify():
-                bounding_boxes = await self.classifier.classify()
-                print(f"Bounding boxes {bounding_boxes}")
+                image_path = await self.classifier.classify()
+                corrected_path = image_path[1].replace("\\", "/")
+                self.image_display.source_url = corrected_path
+                self.image_display.visible = True
 
             asyncio.ensure_future(classify())
         finally:
