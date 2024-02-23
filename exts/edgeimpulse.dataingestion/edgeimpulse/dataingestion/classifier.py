@@ -36,6 +36,10 @@ class Classifier:
         self.featuresTmpFile = None
         self.log_fn = log_fn
         self.image = None
+        self.original_width = None
+        self.original_height = None
+        self.new_width = None
+        self.new_height = None
 
     def is_node_installed(self):
         try:
@@ -174,6 +178,11 @@ class Classifier:
                 features = resized_info["features"]
                 features_str = ",".join(features)
 
+                self.original_width = resized_info["originalWidth"]
+                self.original_height = resized_info["originalHeight"]
+                self.new_width = resized_info["newWidth"]
+                self.new_height = resized_info["newHeight"]
+
                 try:
                     with tempfile.NamedTemporaryFile(
                         delete=False, suffix=".txt", mode="w+t"
@@ -215,12 +224,42 @@ class Classifier:
             result = await loop.run_in_executor(pool, subprocess_run)
             return result
 
+    def normalize_bounding_boxes(self, bounding_boxes):
+        orig_factor = self.original_width / self.original_height
+        new_factor = self.new_width / self.new_height
+
+        if orig_factor > new_factor:
+            # Boxed in with bands top/bottom
+            factor = self.new_width / self.original_width
+            offset_x = 0
+            offset_y = (self.new_height - (self.original_height * factor)) / 2
+        elif orig_factor < new_factor:
+            # Boxed in with bands left/right
+            factor = self.new_height / self.original_height
+            offset_x = (self.new_width - (self.original_width * factor)) / 2
+            offset_y = 0
+        else:
+            # Image was already at the right aspect ratio
+            factor = self.new_width / self.original_width
+            offset_x = 0
+            offset_y = 0
+
+        # Adjust bounding boxes
+        for bb in bounding_boxes:
+            bb["x"] = round((bb["x"] - offset_x) / factor)
+            bb["width"] = round(bb["width"] / factor)
+            bb["y"] = round((bb["y"] - offset_y) / factor)
+            bb["height"] = round(bb["height"] / factor)
+
+        return bounding_boxes
+
     def draw_bounding_boxes_and_save(self, bounding_boxes):
+        normalized_bounding_boxes = self.normalize_bounding_boxes(bounding_boxes)
         # Create a drawing context
         draw = ImageDraw.Draw(self.image)
 
         # Loop through the bounding boxes and draw them
-        for box in bounding_boxes:
+        for box in normalized_bounding_boxes:
             # Extract the bounding box coordinates
             x, y, width, height = box["x"], box["y"], box["width"], box["height"]
             # Draw the rectangle
