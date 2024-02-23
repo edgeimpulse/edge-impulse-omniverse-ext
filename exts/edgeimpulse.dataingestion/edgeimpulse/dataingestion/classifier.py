@@ -1,5 +1,4 @@
 import asyncio
-import json
 import subprocess
 from enum import Enum, auto
 import os
@@ -10,7 +9,7 @@ import glob
 from omni.kit.widget.viewport.capture import ByteCapture
 import omni.isaac.core.utils.viewports as vp
 import ctypes
-from PIL import Image
+from PIL import Image, ImageDraw
 from concurrent.futures import ThreadPoolExecutor
 import yaml
 
@@ -36,6 +35,7 @@ class Classifier:
         self.modelPath = os.path.expanduser("~/Desktop/model.zip")
         self.featuresTmpFile = None
         self.log_fn = log_fn
+        self.image = None
 
     def is_node_installed(self):
         try:
@@ -160,6 +160,7 @@ class Classifier:
                 )
                 np_arr = np.ctypeslib.as_array(pointer.contents)
                 image = Image.frombytes("RGBA", (width, height), np_arr.tobytes())
+                self.image = image
 
                 # Directly use the image for resizing and feature extraction
                 # TODO test values, get them from impulse
@@ -214,6 +215,25 @@ class Classifier:
             result = await loop.run_in_executor(pool, subprocess_run)
             return result
 
+    def draw_bounding_boxes_and_save(self, bounding_boxes):
+        # Create a drawing context
+        draw = ImageDraw.Draw(self.image)
+
+        # Loop through the bounding boxes and draw them
+        for box in bounding_boxes:
+            # Extract the bounding box coordinates
+            x, y, width, height = box["x"], box["y"], box["width"], box["height"]
+            # Draw the rectangle
+            draw.rectangle(((x, y), (x + width, y + height)), outline="red", width=3)
+
+        # TODO use user defined path to save the image with bounding boxes
+        output_image_path = os.path.join(
+            tempfile.gettempdir(), "captured_with_bboxes.png"
+        )
+        # Save the image
+        self.image.save(output_image_path)
+        self.log_fn(f"Image with bounding boxes saved to {output_image_path}")
+
     async def classify(self):
         self.log_fn("Checking and updating model...")
         result = await self.check_and_update_model()
@@ -264,12 +284,15 @@ class Classifier:
                             )
 
                             if "results" in output_dict:
-                                output_dict["boundingBoxes"] = output_dict.pop(
+                                output_dict["bounding_boxes"] = output_dict.pop(
                                     "results"
+                                )
+                                self.draw_bounding_boxes_and_save(
+                                    output_dict["bounding_boxes"]
                                 )
                                 return (
                                     ClassifierError.SUCCESS,
-                                    output_dict["boundingBoxes"],
+                                    output_dict["bounding_boxes"],
                                 )
                             else:
                                 self.log_fn(
