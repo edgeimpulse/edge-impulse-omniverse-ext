@@ -1,4 +1,5 @@
 import asyncio
+import json
 import subprocess
 from enum import Enum, auto
 import os
@@ -11,6 +12,7 @@ import omni.isaac.core.utils.viewports as vp
 import ctypes
 from PIL import Image
 from concurrent.futures import ThreadPoolExecutor
+import yaml
 
 from .client import EdgeImpulseRestClient
 
@@ -22,6 +24,7 @@ class ClassifierError(Enum):
     MODEL_DEPLOYMENT_NOT_AVAILABLE = auto()
     FAILED_TO_DOWNLOAD_MODEL = auto()
     FAILED_TO_PROCESS_VIEWPORT = auto()
+    FAILED_TO_PROCESS_CLASSIFY_RESULT = auto()
 
 
 class Classifier:
@@ -216,7 +219,7 @@ class Classifier:
         result = await self.check_and_update_model()
         if result != ClassifierError.SUCCESS:
             self.log_fn(f"Failed to update model: {result.name}")
-            return result
+            return result, None  # Return None or an empty list for the bounding boxes
 
         self.log_fn("Capturing and processing image...")
         await self.capture_and_process_image()
@@ -237,23 +240,59 @@ class Classifier:
                     # Run subprocess and capture its output
                     process_result = await self.run_subprocess(command, script_dir)
 
-                    # Check the subprocess execution result
                     if process_result.returncode == 0:
-                        self.log_fn("Classification completed successfully.")
-                        self.log_fn(process_result.stdout)  # Log stdout from subprocess
-                    else:
-                        self.log_fn(
-                            f"Classification failed: {process_result.stderr}"
-                        )  # Log stderr on error
+                        self.log_fn(f"{process_result.stdout}")
+                        # Attempt to find the start of the JSON content
+                        try:
+                            json_start_index = process_result.stdout.find("{")
+                            if json_start_index == -1:
+                                self.log_fn(
+                                    "Error: No JSON content found in subprocess output."
+                                )
+                                return (
+                                    ClassifierError.FAILED_TO_PROCESS_CLASSIFY_RESULT,
+                                    None,
+                                )
 
-                    return (
-                        ClassifierError.SUCCESS
-                        if process_result.returncode == 0
-                        else ClassifierError.FAILED_TO_PROCESS_VIEWPORT
-                    )
+                            json_content = process_result.stdout[json_start_index:]
+
+                            # Use YAML loader to parse the JSON content. We cannot use json directly
+                            # because the result of running run-impulse.js is not a well formed JSON
+                            # (i.e. missing double quotes in names)
+                            output_dict = yaml.load(
+                                json_content, Loader=yaml.SafeLoader
+                            )
+
+                            if "results" in output_dict:
+                                output_dict["boundingBoxes"] = output_dict.pop(
+                                    "results"
+                                )
+                                return (
+                                    ClassifierError.SUCCESS,
+                                    output_dict["boundingBoxes"],
+                                )
+                            else:
+                                self.log_fn(
+                                    "Error: classifier output does not contain 'results' key."
+                                )
+                                return (
+                                    ClassifierError.FAILED_TO_PROCESS_CLASSIFY_RESULT,
+                                    None,
+                                )
+                        except yaml.YAMLError as e:
+                            self.log_fn(
+                                f"Error parsing classification results with YAML: {e}"
+                            )
+                            return (
+                                ClassifierError.FAILED_TO_PROCESS_CLASSIFY_RESULT,
+                                None,
+                            )
+                    else:
+                        self.log_fn(f"Classification failed: {process_result.stderr}")
+                        return ClassifierError.FAILED_TO_PROCESS_CLASSIFY_RESULT, None
             else:
                 self.log_fn("No model directory found.")
-                return ClassifierError.FAILED_TO_DOWNLOAD_MODEL
+                return ClassifierError.FAILED_TO_DOWNLOAD_MODEL, None
         except subprocess.CalledProcessError as e:
             self.log_fn(f"Error executing model classification: {e.stderr}")
-            return ClassifierError.FAILED_TO_DOWNLOAD_MODEL
+            return ClassifierError.FAILED_TO_DOWNLOAD_MODEL, None

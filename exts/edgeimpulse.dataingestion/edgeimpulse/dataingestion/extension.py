@@ -170,7 +170,8 @@ class EdgeImpulseExtension(omni.ext.IExt):
             self.classify_button.text = "Classifying..."
 
             async def classify():
-                await self.classifier.classify()
+                bounding_boxes = await self.classifier.classify()
+                print(f"Bounding boxes {bounding_boxes}")
 
             asyncio.ensure_future(classify())
         finally:
