@@ -6,14 +6,15 @@ class EdgeImpulseRestClient:
         self.base_url = "https://studio.edgeimpulse.com/v1/api/"
         self.headers = {"x-api-key": projectApiKey}
 
-    async def get_project_id(self):
-        """Asynchronously retrieves the project ID."""
+    async def get_project_info(self):
+        """Asynchronously retrieves the project info."""
         async with httpx.AsyncClient() as client:
             response = await client.get(
                 f"{self.base_url}projects", headers=self.headers
             )
             if response.status_code == 200 and response.json()["success"]:
-                return response.json()["projects"][0]["id"]
+                project = response.json()["projects"][0]
+                return {"id": project["id"], "name": project["name"]}
             else:
                 return None
 

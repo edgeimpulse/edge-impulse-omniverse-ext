@@ -27,9 +27,9 @@ class ClassifierError(Enum):
 
 
 class Classifier:
-    def __init__(self, projectApiKey, log_fn):
-        self.restClient = EdgeImpulseRestClient(projectApiKey)
-        self.projectId = None
+    def __init__(self, restClient, projectId, log_fn):
+        self.restClient = restClient
+        self.projectId = projectId
         self.modelReady = False
         # TODO allow users to specify output dir for models
         self.modelPath = os.path.expanduser("~/Desktop/model.zip")
@@ -58,11 +58,6 @@ class Classifier:
         if not self.is_node_installed():
             self.log_fn("Error: NodeJS not installed")
             return ClassifierError.NODEJS_NOT_INSTALLED
-
-        self.projectId = await self.restClient.get_project_id()
-        if self.projectId is None:
-            self.log_fn("Error: Failed to retrieve project ID")
-            return ClassifierError.FAILED_TO_RETRIEVE_PROJECT_ID
 
         deployment_info = await self.restClient.get_deployment_info(self.projectId)
         if not deployment_info:

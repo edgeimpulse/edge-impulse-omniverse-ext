@@ -8,32 +8,179 @@ import asyncio
 
 from .config import Config
 from .uploader import upload_data
-from .classifier import Classifier, ClassifierError
+from .classifier import Classifier
+from .state import State
+from .client import EdgeImpulseRestClient
 
 
 class EdgeImpulseExtension(omni.ext.IExt):
 
     config = Config()
     classifier = None
+    restClient = None
 
     def on_startup(self, ext_id):
         print("[edgeimpulse.dataingestion] Edge Impulse Data Ingestion startup")
+
+        self.config.print_config_info()
+
+        # Load the last known state from the config
+        saved_state_name = self.config.get_state()
+        try:
+            self.state = State[saved_state_name]
+        except KeyError:
+            self.state = State.NO_PROJECT_CONNECTED
 
         self.log_text = ""
         self.uploading = False
 
         self._window = ui.Window("Edge Impulse", width=450, height=220)
+        self.main_content_area = None
+
+        self.transition_to_state(self.state)
+
+        # with self._window.frame:
+        #     with ui.VStack(spacing=8):
+
+        #         with ui.HStack(height=20):
+        #             ui.Spacer(width=3)
+        #             ui.Label(
+        #                 "Create a free Edge Impulse account: https://studio.edgeimpulse.com/",
+        #                 height=20,
+        #                 word_wrap=True,
+        #             )
+        #             ui.Spacer(width=3)
+
+        #         with ui.HStack(height=20):
+        #             ui.Spacer(width=3)
+        #             ui.Label("Data Path", width=70)
+        #             ui.Spacer(width=8)
+        #             data_path = self.config.get("data_path", "No folder selected")
+        #             print("data_path", data_path)
+        #             self.data_path_display = ui.Label(data_path, width=250)
+        #             ui.Button("Select Folder", clicked_fn=self.select_folder, width=150)
+        #             ui.Spacer(width=3)
+
+        #         with ui.HStack(height=20):
+        #             ui.Spacer(width=3)
+        #             ui.Label("API Key", width=70)
+        #             ui.Spacer(width=8)
+        #             api_key = self.config.get("api_key", "ei_02162...")
+        #             ei_api_key = ui.StringField(name="ei_api_key")
+        #             ei_api_key.model.set_value(api_key)
+        #             ei_api_key.model.add_value_changed_fn(
+        #                 lambda m: self.config.set("api_key", m.get_value_as_string())
+        #             )
+        #             ui.Spacer(width=3)
+
+    def setup_ui(self):
+        if self.state == State.NO_PROJECT_CONNECTED:
+            self.setup_ui_no_project_connected()
+        elif self.state == State.PROJECT_CONNECTED:
+            self.project_id = self.config.get("projectId")
+            self.project_name = self.config.get("projectName")
+            self.setup_ui_project_connected()
+
+    def transition_to_state(self, new_state):
+        """
+        Transition the extension to a new state.
+
+        :param new_state: The new state to transition to.
+        """
+        # Store the new state in memory
+        self.state = new_state
+
+        # Save the new state in the configuration
+        self.config.set_state(self.state)
+
+        # Call the corresponding UI setup method based on the new state
+        if self.state == State.PROJECT_CONNECTED:
+            self.setup_ui_project_connected()
+        else:
+            self.setup_ui_no_project_connected()
+
+    def setup_ui_no_project_connected(self):
+        if self.main_content_area:
+            self.main_content_area.destroy()
+
         with self._window.frame:
-            with ui.VStack(spacing=8):
+            self.main_content_area = ui.VStack(spacing=15)
+            with self.main_content_area:
+                # Title and welcome message
+                ui.Label(
+                    "Welcome to Edge Impulse for NVIDIA Omniverse",
+                    height=20,
+                    word_wrap=True,
+                )
+
+                ui.Label(
+                    "1. Create a free Edge Impulse account: https://studio.edgeimpulse.com/",
+                    height=20,
+                    word_wrap=True,
+                )
+
+                # API Key input section
+                with ui.VStack(height=20, spacing=10):
+                    ui.Label(
+                        "2. Connect to your Edge Impulse project by setting your API Key",
+                        width=300,
+                    )
+                    with ui.HStack():
+                        ui.Spacer(width=3)
+                        api_key = self.config.get("api_key", "ei_02162...")
+                        ei_api_key = ui.StringField(name="ei_api_key", height=20)
+                        ui.Spacer(width=3)
+                    ui.Spacer(width=30)
+                    ei_api_key.model.set_value(api_key)
+                    ei_api_key.model.add_value_changed_fn(
+                        lambda m: self.config.set("api_key", m.get_value_as_string())
+                    )
 
                 with ui.HStack(height=20):
-                    ui.Spacer(width=3)
-                    ui.Label(
-                        "Create a free Edge Impulse account: https://studio.edgeimpulse.com/",
-                        height=20,
-                        word_wrap=True,
+                    ui.Spacer(width=30)
+                    # Connect button
+                    connect_button = ui.Button("Connect")
+                    connect_button.set_clicked_fn(
+                        lambda: asyncio.ensure_future(
+                            self.validate_and_connect_project(
+                                ei_api_key.model.get_value_as_string()
+                            )
+                        )
                     )
-                    ui.Spacer(width=3)
+                    ui.Spacer(width=30)
+
+                self.error_message_label = ui.Label(
+                    "", height=20, word_wrap=True, visible=False
+                )
+
+    def setup_ui_project_connected(self):
+        self.project_id = self.config.get("projectId")
+        self.project_name = self.config.get("projectName")
+        self.api_key = self.config.get("projectApiKey")
+        self.rest_client = EdgeImpulseRestClient(self.api_key)
+        if not self.api_key or not self.project_id or not self.project_name:
+            print("Something went wrong. Invalid state. Missing project information")
+            return self.transition_to_state(State.NO_PROJECT_CONNECTED)
+
+        if self.main_content_area:
+            self.main_content_area.destroy()
+
+        with self._window.frame:
+            self.main_content_area = ui.VStack(spacing=15)
+            with self.main_content_area:
+                # Project information
+                ui.Label(
+                    f"Connected to project {self.project_id} ({self.project_name})",
+                    height=20,
+                    word_wrap=True,
+                )
+
+                with ui.HStack(height=20):
+                    ui.Spacer(width=30)
+                    # Disconnect button
+                    disconnect_button = ui.Button("Disconnect")
+                    disconnect_button.set_clicked_fn(lambda: self.disconnect())
+                    ui.Spacer(width=30)
 
                 with ui.HStack(height=20):
                     ui.Spacer(width=3)
@@ -43,18 +190,6 @@ class EdgeImpulseExtension(omni.ext.IExt):
                     print("data_path", data_path)
                     self.data_path_display = ui.Label(data_path, width=250)
                     ui.Button("Select Folder", clicked_fn=self.select_folder, width=150)
-                    ui.Spacer(width=3)
-
-                with ui.HStack(height=20):
-                    ui.Spacer(width=3)
-                    ui.Label("API Key", width=70)
-                    ui.Spacer(width=8)
-                    api_key = self.config.get("api_key", "ei_02162...")
-                    ei_api_key = ui.StringField(name="ei_api_key")
-                    ei_api_key.model.set_value(api_key)
-                    ei_api_key.model.add_value_changed_fn(
-                        lambda m: self.config.set("api_key", m.get_value_as_string())
-                    )
                     ui.Spacer(width=3)
 
                 with ui.HStack(height=20):
@@ -106,6 +241,44 @@ class EdgeImpulseExtension(omni.ext.IExt):
                         height=300,
                     )
                     self.image_display.visible = False
+
+    def hide_error_message(self):
+        if self.error_message_label:
+            self.error_message_label.text = ""
+            self.error_message_label.visible = False
+
+    def display_error_message(self, message):
+        if self.error_message_label:
+            self.error_message_label.text = message
+            self.error_message_label.visible = True
+
+    async def validate_and_connect_project(self, api_key):
+        self.hide_error_message()
+
+        self.rest_client = EdgeImpulseRestClient(api_key)
+        project_info = await self.rest_client.get_project_info()
+
+        if project_info:
+            print(f"Connected to project: {project_info}")
+            self.config.set("projectId", project_info["id"])
+            self.config.set("projectName", project_info["name"])
+            self.config.set("projectApiKey", api_key)
+            self.transition_to_state(State.PROJECT_CONNECTED)
+        else:
+            # Display an error message in the current UI
+            self.display_error_message(
+                "Failed to connect to the project. Please check your API key."
+            )
+
+    def disconnect(self):
+        print("Disconnecting")
+        self.project_id = None
+        self.project_name = None
+        self.api_key = None
+        self.config.set("projectId", None)
+        self.config.set("projectName", None)
+        self.config.set("projectApiKey", None)
+        self.transition_to_state(State.NO_PROJECT_CONNECTED)
 
     def select_folder(self):
         def import_handler(filename: str, dirname: str, selections: list = []):
@@ -171,8 +344,9 @@ class EdgeImpulseExtension(omni.ext.IExt):
 
     async def start_classify(self):
         if not self.classifier:
-            api_key = self.config.get("api_key")
-            self.classifier = Classifier(api_key, self.add_log_entry)
+            self.classifier = Classifier(
+                self.rest_client, self.project_id, self.add_log_entry
+            )
 
         try:
             self.classify_button.text = "Classifying..."

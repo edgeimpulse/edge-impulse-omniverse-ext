@@ -41,6 +41,7 @@ dependencies = [
 [python.pipapi]
 requirements = [
     "httpx==0.21.1",
-    "pyyaml"
+    "pyyaml",
+    "webbrowser"
 ]
 use_online_index = true
