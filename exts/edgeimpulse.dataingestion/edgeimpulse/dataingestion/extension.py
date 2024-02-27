@@ -16,7 +16,6 @@ class EdgeImpulseExtension(omni.ext.IExt):
 
     config = Config()
     classifier = None
-    restClient = None
 
     def on_startup(self, ext_id):
         print("[edgeimpulse.dataingestion] Edge Impulse Extension startup")
@@ -33,6 +32,8 @@ class EdgeImpulseExtension(omni.ext.IExt):
         self.project_id = None
         self.api_key = None
         self.project_name = None
+
+        self.impulse = None
 
         self.upload_logs_text = ""
         self.uploading = False
@@ -349,10 +350,24 @@ class EdgeImpulseExtension(omni.ext.IExt):
         self.clear_classify_logs_button.visible = bool(self.classify_logs_text)
         self.classify_logs_frame.visible = self.classifying
 
+    async def get_impulse(self):
+        self.impulse = await self.rest_client.get_impulse(self.project_id)
+
     async def start_classify(self):
         if not self.classifier:
+            if not self.impulse:
+                await self.get_impulse()
+
+            if not self.impulse:
+                self.add_classify_logs_entry("Error: impulse is not ready yet")
+                return
+
             self.classifier = Classifier(
-                self.rest_client, self.project_id, self.add_classify_logs_entry
+                self.rest_client,
+                self.project_id,
+                self.impulse.image_height,
+                self.impulse.image_width,
+                self.add_classify_logs_entry,
             )
 
         async def classify():

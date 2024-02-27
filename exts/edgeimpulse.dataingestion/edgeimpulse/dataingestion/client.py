@@ -1,5 +1,7 @@
 import httpx
 
+from .impulse import Impulse
+
 
 class EdgeImpulseRestClient:
     def __init__(self, projectApiKey):
@@ -45,5 +47,25 @@ class EdgeImpulseRestClient:
             )
             if response.status_code == 200:
                 return response.content
+            else:
+                return None
+
+    async def get_impulse(self, projectId):
+        """Asynchronously fetches the impulse details and returns an Impulse object or None"""
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{self.base_url}{projectId}/impulse",
+                headers=self.headers,
+            )
+            if response.status_code == 200:
+                data = response.json()
+                if "impulse" in data and data["impulse"].get("inputBlocks"):
+                    first_input_block = data["impulse"]["inputBlocks"][0]
+                    return Impulse(
+                        image_width=first_input_block.get("imageWidth"),
+                        image_height=first_input_block.get("imageHeight"),
+                    )
+                else:
+                    return None
             else:
                 return None

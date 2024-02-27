@@ -13,8 +13,6 @@ from PIL import Image, ImageDraw
 from concurrent.futures import ThreadPoolExecutor
 import yaml
 
-from .client import EdgeImpulseRestClient
-
 
 class ClassifierError(Enum):
     SUCCESS = auto()
@@ -27,7 +25,9 @@ class ClassifierError(Enum):
 
 
 class Classifier:
-    def __init__(self, restClient, projectId, log_fn):
+    def __init__(
+        self, restClient, projectId, impulseImageHeight, impulseImageWidth, log_fn
+    ):
         self.restClient = restClient
         self.projectId = projectId
         self.modelReady = False
@@ -35,6 +35,8 @@ class Classifier:
         self.modelPath = os.path.expanduser("~/Desktop/model.zip")
         self.featuresTmpFile = None
         self.log_fn = log_fn
+        self.impulseImageHeight = impulseImageHeight
+        self.impulseImageWidth = impulseImageWidth
         self.image = None
         self.original_width = None
         self.original_height = None
@@ -163,9 +165,8 @@ class Classifier:
                 self.image = image
 
                 # Directly use the image for resizing and feature extraction
-                # TODO test values, get them from impulse
-                target_width = 320
-                target_height = 320
+                target_width = self.impulseImageWidth
+                target_height = self.impulseImageHeight
                 channel_count = 3  # 3 for RGB, 1 for grayscale
 
                 resized_info = self.resize_image_and_extract_features(
