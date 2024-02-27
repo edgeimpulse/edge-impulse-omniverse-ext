@@ -4,9 +4,9 @@ from .impulse import Impulse
 
 
 class EdgeImpulseRestClient:
-    def __init__(self, projectApiKey):
+    def __init__(self, project_api_key):
         self.base_url = "https://studio.edgeimpulse.com/v1/api/"
-        self.headers = {"x-api-key": projectApiKey}
+        self.headers = {"x-api-key": project_api_key}
 
     async def get_project_info(self):
         """Asynchronously retrieves the project info."""
@@ -20,11 +20,11 @@ class EdgeImpulseRestClient:
             else:
                 return None
 
-    async def get_deployment_info(self, projectId):
+    async def get_deployment_info(self, project_id):
         """Asynchronously retrieves deployment information, including version."""
         async with httpx.AsyncClient() as client:
             response = await client.get(
-                f"{self.base_url}{projectId}/deployment?type=wasm&engine=tflite",
+                f"{self.base_url}{project_id}/deployment?type=wasm&engine=tflite",
                 headers=self.headers,
             )
             if response.status_code == 200 and response.json().get("success"):
@@ -38,11 +38,11 @@ class EdgeImpulseRestClient:
                 # Returns None if the request failed or no deployment info was found
                 return None
 
-    async def download_model(self, projectId):
+    async def download_model(self, project_id):
         """Asynchronously downloads the model."""
         async with httpx.AsyncClient() as client:
             response = await client.get(
-                f"{self.base_url}{projectId}/deployment/download?type=wasm&engine=tflite",
+                f"{self.base_url}{project_id}/deployment/download?type=wasm&engine=tflite",
                 headers=self.headers,
             )
             if response.status_code == 200:
@@ -50,11 +50,11 @@ class EdgeImpulseRestClient:
             else:
                 return None
 
-    async def get_impulse(self, projectId):
+    async def get_impulse(self, project_id):
         """Asynchronously fetches the impulse details and returns an Impulse object or None"""
         async with httpx.AsyncClient() as client:
             response = await client.get(
-                f"{self.base_url}{projectId}/impulse",
+                f"{self.base_url}{project_id}/impulse",
                 headers=self.headers,
             )
             if response.status_code == 200:
@@ -69,3 +69,19 @@ class EdgeImpulseRestClient:
                     return None
             else:
                 return None
+
+    async def get_samples_count(self, project_id, category="training"):
+        """Asynchronously fetches the number of samples ingested for a specific category"""
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{self.base_url}{project_id}/raw-data/count?category={category}",
+                headers=self.headers,
+            )
+            if response.status_code == 200:
+                data = response.json()
+                if "count" in data:
+                    return data["count"]
+                else:
+                    return 0
+            else:
+                return 0

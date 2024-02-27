@@ -41,6 +41,10 @@ class EdgeImpulseExtension(omni.ext.IExt):
         self.classify_logs_text = ""
         self.classifying = False
 
+        self.training_samples = 0
+        self.testing_samples = 0
+        self.anomaly_samples = 0
+
         self._window = ui.Window("Edge Impulse", width=300, height=300)
 
         with self._window.frame:
@@ -154,9 +158,7 @@ class EdgeImpulseExtension(omni.ext.IExt):
                 ui.Spacer(width=30)
 
             # Data Upload Section
-            with ui.CollapsableFrame("Data Upload", collapsed=True, height=0):
-                with ui.VStack(spacing=10, height=0):
-                    self.setup_data_upload_ui()
+            self.setup_data_upload_ui()
 
             # Classification Section
             with ui.CollapsableFrame("Classification", collapsed=True, height=0):
@@ -164,51 +166,72 @@ class EdgeImpulseExtension(omni.ext.IExt):
                     self.setup_classification_ui()
 
     def setup_data_upload_ui(self):
-        with ui.HStack(height=20):
-            ui.Spacer(width=3)
-            ui.Label("Data Path", width=70)
-            ui.Spacer(width=8)
-            data_path = self.config.get("data_path", "No folder selected")
-            self.data_path_display = ui.Label(data_path, width=250)
-            ui.Spacer(width=10)
-            ui.Button("Select Folder", clicked_fn=self.select_folder, width=150)
-            ui.Spacer(width=3)
+        collapsable_frame = ui.CollapsableFrame("Data Upload", collapsed=True, height=0)
+        collapsable_frame.set_collapsed_changed_fn(
+            lambda c: asyncio.ensure_future(self.on_data_upload_collapsed_changed(c))
+        )
+        with collapsable_frame:
+            with ui.VStack(spacing=10, height=0):
+                with ui.VStack(height=0, spacing=5):
+                    self.training_samples_label = ui.Label(
+                        f"Training samples: {self.training_samples}"
+                    )
+                    self.testing_samples_label = ui.Label(
+                        f"Test samples: {self.testing_samples}"
+                    )
+                    self.anomaly_samples_label = ui.Label(
+                        f"Anomaly samples: {self.anomaly_samples}"
+                    )
 
-        with ui.HStack(height=20):
-            ui.Spacer(width=3)
-            ui.Label("Dataset", width=70)
-            ui.Spacer(width=8)
-            dataset_types = ["training", "testing", "anomaly"]
-            self.dataset_type_dropdown = ui.ComboBox(0, *dataset_types)
-            self.dataset_type_subscription = (
-                self.dataset_type_dropdown.model.subscribe_item_changed_fn(
-                    self.on_dataset_type_changed
-                )
-            )
-            initial_dataset_type = self.config.get("dataset_type", "training")
-            if initial_dataset_type in dataset_types:
-                for i, dtype in enumerate(dataset_types):
-                    if dtype == initial_dataset_type:
-                        self.dataset_type_dropdown.model.get_item_value_model().as_int = (
-                            i
+                with ui.HStack(height=20):
+                    ui.Spacer(width=3)
+                    ui.Label("Data Path", width=70)
+                    ui.Spacer(width=8)
+                    data_path = self.config.get("data_path", "No folder selected")
+                    self.data_path_display = ui.Label(data_path, width=250)
+                    ui.Spacer(width=10)
+                    ui.Button("Select Folder", clicked_fn=self.select_folder, width=150)
+                    ui.Spacer(width=3)
+
+                with ui.HStack(height=20):
+                    ui.Spacer(width=3)
+                    ui.Label("Dataset", width=70)
+                    ui.Spacer(width=8)
+                    dataset_types = ["training", "testing", "anomaly"]
+                    self.dataset_type_dropdown = ui.ComboBox(0, *dataset_types)
+                    self.dataset_type_subscription = (
+                        self.dataset_type_dropdown.model.subscribe_item_changed_fn(
+                            self.on_dataset_type_changed
                         )
-                        break
-            ui.Spacer(width=3)
+                    )
+                    initial_dataset_type = self.config.get("dataset_type", "training")
+                    if initial_dataset_type in dataset_types:
+                        for i, dtype in enumerate(dataset_types):
+                            if dtype == initial_dataset_type:
+                                self.dataset_type_dropdown.model.get_item_value_model().as_int = (
+                                    i
+                                )
+                                break
+                    ui.Spacer(width=3)
 
-        with ui.HStack(height=20):
-            self.upload_button = ui.Button(
-                "Upload to Edge Impulse", clicked_fn=lambda: self.start_upload()
-            )
+                with ui.HStack(height=20):
+                    self.upload_button = ui.Button(
+                        "Upload to Edge Impulse", clicked_fn=lambda: self.start_upload()
+                    )
 
-        # Scrolling frame for upload logs
-        self.upload_logs_frame = ui.ScrollingFrame(height=100, visible=False)
-        with self.upload_logs_frame:
-            self.upload_logs_label = ui.Label("", word_wrap=True)
+                # Scrolling frame for upload logs
+                self.upload_logs_frame = ui.ScrollingFrame(height=100, visible=False)
+                with self.upload_logs_frame:
+                    self.upload_logs_label = ui.Label("", word_wrap=True)
 
-        with ui.HStack(height=20):
-            self.clear_upload_logs_button = ui.Button(
-                "Clear Logs", clicked_fn=self.clear_upload_logs, visible=False
-            )
+                with ui.HStack(height=20):
+                    self.clear_upload_logs_button = ui.Button(
+                        "Clear Logs", clicked_fn=self.clear_upload_logs, visible=False
+                    )
+
+    async def on_data_upload_collapsed_changed(self, collapsed):
+        if not collapsed:
+            await self.get_samples_count()
 
     def setup_classification_ui(self):
         with ui.HStack(height=20):
@@ -270,7 +293,10 @@ class EdgeImpulseExtension(omni.ext.IExt):
         self.config.set("project_id", None)
         self.config.set("project_name", None)
         self.config.set("project_api_key", None)
+        self.image_display.visible = False
         self.transition_to_state(State.NO_PROJECT_CONNECTED)
+
+    ### Data ingestion
 
     def select_folder(self):
         def import_handler(filename: str, dirname: str, selections: list = []):
@@ -335,6 +361,25 @@ class EdgeImpulseExtension(omni.ext.IExt):
     def on_upload_complete(self):
         self.uploading = False
         self.upload_button.text = "Upload to Edge Impulse"
+
+    async def get_samples_count(self):
+        self.training_samples = await self.rest_client.get_samples_count(
+            self.project_id, "training"
+        )
+        self.testing_samples = await self.rest_client.get_samples_count(
+            self.project_id, "testing"
+        )
+        self.anomaly_samples = await self.rest_client.get_samples_count(
+            self.project_id, "anomaly"
+        )
+        print(
+            f"Samples count: Training ({self.training_samples}) - Testing ({self.testing_samples}) - Anomaly ({self.anomaly_samples})"
+        )
+        self.training_samples_label.text = f"Training samples: {self.training_samples}"
+        self.testing_samples_label.text = f"Test samples: {self.testing_samples}"
+        self.anomaly_samples_label.text = f"Anomaly samples: {self.anomaly_samples}"
+
+    ### Classification
 
     def add_classify_logs_entry(self, message):
         self.classify_logs_text += message + "\n"
