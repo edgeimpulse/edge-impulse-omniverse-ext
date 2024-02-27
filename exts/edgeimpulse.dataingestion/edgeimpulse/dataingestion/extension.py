@@ -3,7 +3,6 @@
 import omni.ext
 import omni.ui as ui
 from omni.kit.window.file_importer import get_file_importer
-from omni.kit.window.popup_dialog import MessageDialog
 import asyncio
 
 from .config import Config
@@ -20,7 +19,7 @@ class EdgeImpulseExtension(omni.ext.IExt):
     restClient = None
 
     def on_startup(self, ext_id):
-        print("[edgeimpulse.dataingestion] Edge Impulse Data Ingestion startup")
+        print("[edgeimpulse.dataingestion] Edge Impulse Extension startup")
 
         self.config.print_config_info()
 
@@ -31,47 +30,16 @@ class EdgeImpulseExtension(omni.ext.IExt):
         except KeyError:
             self.state = State.NO_PROJECT_CONNECTED
 
-        self.log_text = ""
+        self.upload_logs_text = ""
         self.uploading = False
 
-        self._window = ui.Window("Edge Impulse", width=450, height=220)
+        self.classify_logs_text = ""
+        self.classifying = False
+
+        self._window = ui.Window("Edge Impulse", width=300, height=300)
         self.main_content_area = None
 
         self.transition_to_state(self.state)
-
-        # with self._window.frame:
-        #     with ui.VStack(spacing=8):
-
-        #         with ui.HStack(height=20):
-        #             ui.Spacer(width=3)
-        #             ui.Label(
-        #                 "Create a free Edge Impulse account: https://studio.edgeimpulse.com/",
-        #                 height=20,
-        #                 word_wrap=True,
-        #             )
-        #             ui.Spacer(width=3)
-
-        #         with ui.HStack(height=20):
-        #             ui.Spacer(width=3)
-        #             ui.Label("Data Path", width=70)
-        #             ui.Spacer(width=8)
-        #             data_path = self.config.get("data_path", "No folder selected")
-        #             print("data_path", data_path)
-        #             self.data_path_display = ui.Label(data_path, width=250)
-        #             ui.Button("Select Folder", clicked_fn=self.select_folder, width=150)
-        #             ui.Spacer(width=3)
-
-        #         with ui.HStack(height=20):
-        #             ui.Spacer(width=3)
-        #             ui.Label("API Key", width=70)
-        #             ui.Spacer(width=8)
-        #             api_key = self.config.get("api_key", "ei_02162...")
-        #             ei_api_key = ui.StringField(name="ei_api_key")
-        #             ei_api_key.model.set_value(api_key)
-        #             ei_api_key.model.add_value_changed_fn(
-        #                 lambda m: self.config.set("api_key", m.get_value_as_string())
-        #             )
-        #             ui.Spacer(width=3)
 
     def setup_ui(self):
         if self.state == State.NO_PROJECT_CONNECTED:
@@ -104,7 +72,7 @@ class EdgeImpulseExtension(omni.ext.IExt):
             self.main_content_area.destroy()
 
         with self._window.frame:
-            self.main_content_area = ui.VStack(spacing=15)
+            self.main_content_area = ui.VStack(spacing=15, height=0)
             with self.main_content_area:
                 # Title and welcome message
                 ui.Label(
@@ -166,7 +134,7 @@ class EdgeImpulseExtension(omni.ext.IExt):
             self.main_content_area.destroy()
 
         with self._window.frame:
-            self.main_content_area = ui.VStack(spacing=15)
+            self.main_content_area = ui.VStack(spacing=15, height=0)
             with self.main_content_area:
                 # Project information
                 ui.Label(
@@ -175,72 +143,94 @@ class EdgeImpulseExtension(omni.ext.IExt):
                     word_wrap=True,
                 )
 
+                # Disconnect button
                 with ui.HStack(height=20):
                     ui.Spacer(width=30)
-                    # Disconnect button
                     disconnect_button = ui.Button("Disconnect")
                     disconnect_button.set_clicked_fn(lambda: self.disconnect())
                     ui.Spacer(width=30)
 
-                with ui.HStack(height=20):
-                    ui.Spacer(width=3)
-                    ui.Label("Data Path", width=70)
-                    ui.Spacer(width=8)
-                    data_path = self.config.get("data_path", "No folder selected")
-                    print("data_path", data_path)
-                    self.data_path_display = ui.Label(data_path, width=250)
-                    ui.Button("Select Folder", clicked_fn=self.select_folder, width=150)
-                    ui.Spacer(width=3)
+                # Data Upload Section
+                with ui.CollapsableFrame("Data Upload", collapsed=True, height=0):
+                    with ui.VStack(spacing=10, height=0):
+                        self.setup_data_upload_ui()
 
-                with ui.HStack(height=20):
-                    ui.Spacer(width=3)
-                    ui.Label("Dataset", width=70)
-                    ui.Spacer(width=8)
-                    dataset_types = ["training", "testing", "anomaly"]
-                    self.dataset_type_dropdown = ui.ComboBox(0, *dataset_types)
-                    self.dataset_type_subscription = (
-                        self.dataset_type_dropdown.model.subscribe_item_changed_fn(
-                            self.on_dataset_type_changed
+                # Classification Section
+                with ui.CollapsableFrame("Classification", collapsed=True, height=0):
+                    with ui.VStack(spacing=10, height=0):
+                        self.setup_classification_ui()
+
+    def setup_data_upload_ui(self):
+        with ui.HStack(height=20):
+            ui.Spacer(width=3)
+            ui.Label("Data Path", width=70)
+            ui.Spacer(width=8)
+            data_path = self.config.get("data_path", "No folder selected")
+            print("data_path", data_path)
+            self.data_path_display = ui.Label(data_path, width=250)
+            ui.Spacer(width=10)
+            ui.Button("Select Folder", clicked_fn=self.select_folder, width=150)
+            ui.Spacer(width=3)
+
+        with ui.HStack(height=20):
+            ui.Spacer(width=3)
+            ui.Label("Dataset", width=70)
+            ui.Spacer(width=8)
+            dataset_types = ["training", "testing", "anomaly"]
+            self.dataset_type_dropdown = ui.ComboBox(0, *dataset_types)
+            self.dataset_type_subscription = (
+                self.dataset_type_dropdown.model.subscribe_item_changed_fn(
+                    self.on_dataset_type_changed
+                )
+            )
+            initial_dataset_type = self.config.get("dataset_type", "training")
+            if initial_dataset_type in dataset_types:
+                for i, dtype in enumerate(dataset_types):
+                    if dtype == initial_dataset_type:
+                        self.dataset_type_dropdown.model.get_item_value_model().as_int = (
+                            i
                         )
-                    )
-                    initial_dataset_type = self.config.get("dataset_type", "training")
-                    if initial_dataset_type in dataset_types:
-                        for i, dtype in enumerate(dataset_types):
-                            if dtype == initial_dataset_type:
-                                self.dataset_type_dropdown.model.get_item_value_model().as_int = (
-                                    i
-                                )
-                                break
-                    ui.Spacer(width=3)
+                        break
+            ui.Spacer(width=3)
 
-                with ui.HStack(height=20):
-                    self.upload_button = ui.Button(
-                        "Upload to Edge Impulse", clicked_fn=lambda: self.start_upload()
-                    )
+        with ui.HStack(height=20):
+            self.upload_button = ui.Button(
+                "Upload to Edge Impulse", clicked_fn=lambda: self.start_upload()
+            )
 
-                with ui.HStack(height=20):
-                    self.classify_button = ui.Button(
-                        "Classify",
-                        clicked_fn=lambda: asyncio.ensure_future(self.start_classify()),
-                    )
+        # Scrolling frame for upload logs
+        self.upload_logs_frame = ui.ScrollingFrame(height=100, visible=False)
+        with self.upload_logs_frame:
+            self.upload_logs_label = ui.Label("", word_wrap=True)
 
-                # Scrolling Frame for Logs
-                with ui.ScrollingFrame(height=100):
-                    self.log_label = ui.Label("", word_wrap=True)
+        with ui.HStack(height=20):
+            self.clear_upload_logs_button = ui.Button(
+                "Clear Logs", clicked_fn=self.clear_upload_logs, visible=False
+            )
 
-                with ui.HStack(height=20):
-                    self.clear_button = ui.Button(
-                        "Clear Logs", clicked_fn=self.clear_logs
-                    )
-                    self.clear_button.visible = False
+    def setup_classification_ui(self):
+        with ui.HStack(height=20):
+            self.classify_button = ui.Button(
+                "Classify",
+                clicked_fn=lambda: asyncio.ensure_future(self.start_classify()),
+            )
 
-                with ui.HStack(height=300):
-                    self.image_display = ui.Image(
-                        "",
-                        width=400,
-                        height=300,
-                    )
-                    self.image_display.visible = False
+        # Scrolling frame for classify logs
+        self.classify_logs_frame = ui.ScrollingFrame(height=100, visible=False)
+        with self.classify_logs_frame:
+            self.classify_logs_label = ui.Label("", word_wrap=True)
+
+        with ui.HStack(height=20):
+            self.clear_classify_logs_button = ui.Button(
+                "Clear Logs", clicked_fn=self.clear_classify_logs, visible=False
+            )
+
+        self.image_display = ui.Image(
+            "",
+            width=400,
+            height=300,
+        )
+        self.image_display.visible = False
 
     def hide_error_message(self):
         if self.error_message_label:
@@ -309,30 +299,32 @@ class EdgeImpulseExtension(omni.ext.IExt):
         dataset_types = ["training", "testing", "anomaly"]
         return dataset_types[selected_index]
 
-    def add_log_entry(self, message):
-        self.log_text += message + "\n"
-        self.log_label.text = self.log_text
-        self.update_clear_button_visibility()
+    def add_upload_logs_entry(self, message):
+        self.upload_logs_text += message + "\n"
+        self.upload_logs_label.text = self.upload_logs_text
+        self.update_clear_upload_logs_button_visibility()
 
-    def clear_logs(self):
-        self.log_text = ""
-        self.log_label.text = self.log_text
-        self.update_clear_button_visibility()
+    def clear_upload_logs(self):
+        self.upload_logs_text = ""
+        self.upload_logs_label.text = self.upload_logs_text
+        self.update_clear_upload_logs_button_visibility()
 
-    def update_clear_button_visibility(self):
-        self.clear_button.visible = bool(self.log_text)
+    def update_clear_upload_logs_button_visibility(self):
+        self.clear_upload_logs_button.visible = bool(self.upload_logs_text)
+        self.upload_logs_frame.visible = self.uploading
 
     def start_upload(self):
         if not self.uploading:  # Prevent multiple uploads at the same time
             self.uploading = True
             self.upload_button.text = "Uploading..."
+            self.upload_logs_frame.visible = True
 
             async def upload():
                 await upload_data(
                     self.config.get("api_key"),
                     self.config.get("data_path"),
                     self.config.get("dataset_type"),
-                    self.add_log_entry,
+                    self.add_upload_logs_entry,
                     self.on_upload_complete,
                 )
 
@@ -342,24 +334,40 @@ class EdgeImpulseExtension(omni.ext.IExt):
         self.uploading = False
         self.upload_button.text = "Upload to Edge Impulse"
 
+    def add_classify_logs_entry(self, message):
+        self.classify_logs_text += message + "\n"
+        self.classify_logs_label.text = self.classify_logs_text
+        self.update_clear_classify_logs_button_visibility()
+
+    def clear_classify_logs(self):
+        self.classify_logs_text = ""
+        self.classify_logs_label.text = self.classify_logs_text
+        self.update_clear_classify_logs_button_visibility()
+
+    def update_clear_classify_logs_button_visibility(self):
+        self.clear_classify_logs_button.visible = bool(self.classify_logs_text)
+        self.classify_logs_frame.visible = self.classifying
+
     async def start_classify(self):
         if not self.classifier:
             self.classifier = Classifier(
-                self.rest_client, self.project_id, self.add_log_entry
+                self.rest_client, self.project_id, self.add_classify_logs_entry
             )
 
-        try:
-            self.classify_button.text = "Classifying..."
+        async def classify():
+            try:
+                self.classifying = True
+                self.classify_button.text = "Classifying..."
 
-            async def classify():
                 image_path = await self.classifier.classify()
                 corrected_path = image_path[1].replace("\\", "/")
                 self.image_display.source_url = corrected_path
                 self.image_display.visible = True
+            finally:
+                self.classifying = False
+                self.classify_button.text = "Classify"
 
-            asyncio.ensure_future(classify())
-        finally:
-            self.classify_button.text = "Classify"
+        asyncio.ensure_future(classify())
 
     def on_shutdown(self):
-        print("[edgeimpulse.dataingestion] Edge Impulse Data Ingestion shutdown")
+        print("[edgeimpulse.dataingestion] Edge Impulse Extension shutdown")
