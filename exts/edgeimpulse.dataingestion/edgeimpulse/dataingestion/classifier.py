@@ -12,6 +12,7 @@ import ctypes
 from PIL import Image, ImageDraw
 from concurrent.futures import ThreadPoolExecutor
 import yaml
+from .utils import get_models_directory, is_node_installed
 
 
 class ClassifierError(Enum):
@@ -26,17 +27,16 @@ class ClassifierError(Enum):
 
 class Classifier:
     def __init__(
-        self, restClient, projectId, impulseImageHeight, impulseImageWidth, log_fn
+        self, rest_client, project_id, impulse_image_height, impulse_image_width, log_fn
     ):
-        self.restClient = restClient
-        self.projectId = projectId
-        self.modelReady = False
-        # TODO allow users to specify output dir for models
-        self.modelPath = os.path.expanduser("~/Desktop/model.zip")
+        self.rest_client = rest_client
+        self.project_id = project_id
+        self.model_ready = False
+        self.model_path = os.path.expanduser(f"{get_models_directory()}/model.zip")
         self.featuresTmpFile = None
         self.log_fn = log_fn
-        self.impulseImageHeight = impulseImageHeight
-        self.impulseImageWidth = impulseImageWidth
+        self.impulse_image_height = impulse_image_height
+        self.impulse_image_width = impulse_image_width
         self.image = None
         self.original_width = None
         self.original_height = None
@@ -44,59 +44,47 @@ class Classifier:
         self.new_height = None
         self.output_image_path = None
 
-    def is_node_installed(self):
-        try:
-            subprocess.run(
-                ["node", "--version"],
-                check=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
-            return True
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            return False
-
-    async def check_and_update_model(self):
-        if not self.is_node_installed():
+    async def __check_and_update_model(self):
+        if not is_node_installed():
             self.log_fn("Error: NodeJS not installed")
             return ClassifierError.NODEJS_NOT_INSTALLED
 
-        deployment_info = await self.restClient.get_deployment_info(self.projectId)
+        deployment_info = await self.rest_client.get_deployment_info(self.project_id)
         if not deployment_info:
             self.log_fn("Error: Failed to get deployment info")
             return ClassifierError.MODEL_DEPLOYMENT_NOT_AVAILABLE
 
         current_version = deployment_info["version"]
-        model_dir_name = f"ei-model-{current_version}"
-        model_dir = os.path.join(os.path.dirname(self.modelPath), model_dir_name)
+        model_dir_name = f"ei-model-{self.project_id}-{current_version}"
+        model_dir = os.path.join(os.path.dirname(self.model_path), model_dir_name)
 
         # Check if the model directory exists and its version
         if os.path.exists(model_dir):
             self.log_fn("Latest model version already downloaded.")
-            self.modelReady = True
+            self.model_ready = True
             return ClassifierError.SUCCESS
 
         # If the model directory for the current version does not exist, delete old versions and download the new one
-        self.delete_old_models(os.path.dirname(self.modelPath), model_dir_name)
+        self.__delete_old_models(os.path.dirname(self.model_path), model_dir_name)
         self.log_fn("Downloading model...")
-        model_content = await self.restClient.download_model(self.projectId)
+        model_content = await self.rest_client.download_model(self.project_id)
         if model_content is not None:
-            self.save_model(model_content, model_dir)
-            self.modelReady = True
+            self.__save_model(model_content, model_dir)
+            self.model_ready = True
             self.log_fn("Model is ready for classification.")
             return ClassifierError.SUCCESS
         else:
             self.log_fn("Error: Failed to download the model")
             return ClassifierError.FAILED_TO_DOWNLOAD_MODEL
 
-    def delete_old_models(self, parent_dir, exclude_dir_name):
+    def __delete_old_models(self, parent_dir, exclude_dir_name):
         for dirname in os.listdir(parent_dir):
             if dirname.startswith("ei-model-") and dirname != exclude_dir_name:
                 dirpath = os.path.join(parent_dir, dirname)
                 shutil.rmtree(dirpath)
                 self.log_fn(f"Deleted old model directory: {dirpath}")
 
-    def save_model(self, model_content, model_dir):
+    def __save_model(self, model_content, model_dir):
         if not os.path.exists(model_dir):
             os.makedirs(model_dir)
             self.log_fn(f"'{model_dir}' directory created")
@@ -111,7 +99,7 @@ class Classifier:
         os.remove(model_zip_path)
         self.log_fn(f"Model extracted to {model_dir}")
 
-    def resize_image_and_extract_features(
+    def __resize_image_and_extract_features(
         self, image, target_width, target_height, channel_count
     ):
         # Resize the image
@@ -145,7 +133,7 @@ class Classifier:
             "newHeight": target_height,
         }
 
-    async def capture_and_process_image(self):
+    async def __capture_and_process_image(self):
         def on_capture_completed(buffer, buffer_size, width, height, format):
             try:
                 image_size = width * height * 4
@@ -165,11 +153,11 @@ class Classifier:
                 self.image = image
 
                 # Directly use the image for resizing and feature extraction
-                target_width = self.impulseImageWidth
-                target_height = self.impulseImageHeight
+                target_width = self.impulse_image_width
+                target_height = self.impulse_image_height
                 channel_count = 3  # 3 for RGB, 1 for grayscale
 
-                resized_info = self.resize_image_and_extract_features(
+                resized_info = self.__resize_image_and_extract_features(
                     image, target_width, target_height, channel_count
                 )
                 features = resized_info["features"]
@@ -202,7 +190,7 @@ class Classifier:
 
         await capture.wait_for_result()
 
-    async def run_subprocess(self, command, cwd):
+    async def __run_subprocess(self, command, cwd):
         """Run the given subprocess command in a thread pool and capture its output."""
         loop = asyncio.get_running_loop()
 
@@ -221,7 +209,7 @@ class Classifier:
             result = await loop.run_in_executor(pool, subprocess_run)
             return result
 
-    def normalize_bounding_boxes(self, bounding_boxes):
+    def __normalize_bounding_boxes(self, bounding_boxes):
         orig_factor = self.original_width / self.original_height
         new_factor = self.new_width / self.new_height
 
@@ -250,8 +238,8 @@ class Classifier:
 
         return bounding_boxes
 
-    def draw_bounding_boxes_and_save(self, bounding_boxes):
-        normalized_bounding_boxes = self.normalize_bounding_boxes(bounding_boxes)
+    def __draw_bounding_boxes_and_save(self, bounding_boxes):
+        normalized_bounding_boxes = self.__normalize_bounding_boxes(bounding_boxes)
         # Create a drawing context
         draw = ImageDraw.Draw(self.image)
 
@@ -272,17 +260,17 @@ class Classifier:
 
     async def classify(self):
         self.log_fn("Checking and updating model...")
-        result = await self.check_and_update_model()
+        result = await self.__check_and_update_model()
         if result != ClassifierError.SUCCESS:
             self.log_fn(f"Failed to update model: {result.name}")
             return result, None  # Return None or an empty list for the bounding boxes
 
         self.log_fn("Capturing and processing image...")
-        await self.capture_and_process_image()
+        await self.__capture_and_process_image()
 
         try:
             model_dirs = glob.glob(
-                os.path.join(os.path.dirname(self.modelPath), "ei-model-*")
+                os.path.join(os.path.dirname(self.model_path), "ei-model-*")
             )
             if model_dirs:
                 latest_model_dir = max(model_dirs, key=os.path.getctime)
@@ -294,7 +282,7 @@ class Classifier:
                     command = ["node", "run-impulse.js", self.featuresTmpFile]
 
                     # Run subprocess and capture its output
-                    process_result = await self.run_subprocess(command, script_dir)
+                    process_result = await self.__run_subprocess(command, script_dir)
 
                     if process_result.returncode == 0:
                         self.log_fn(f"{process_result.stdout}")
@@ -323,7 +311,7 @@ class Classifier:
                                 output_dict["bounding_boxes"] = output_dict.pop(
                                     "results"
                                 )
-                                self.draw_bounding_boxes_and_save(
+                                self.__draw_bounding_boxes_and_save(
                                     output_dict["bounding_boxes"]
                                 )
                                 return (
