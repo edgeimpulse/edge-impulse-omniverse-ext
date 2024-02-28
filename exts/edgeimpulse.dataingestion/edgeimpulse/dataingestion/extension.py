@@ -495,10 +495,13 @@ Go to https://studio.edgeimpulse.com/studio/{self.project_id}/deployment to buil
             try:
                 self.classifying = True
                 self.classify_button.text = "Classifying..."
+                self.clear_classify_logs()
                 self.classification_output_section.visible = False
                 image_path = await self.classifier.classify()
                 corrected_path = image_path[1].replace("\\", "/")
                 self.image_display.source_url = corrected_path
+                self.image_display.width = ui.Length(self.impulse_info.image_width)
+                self.image_display.height = ui.Length(self.impulse_info.image_height)
                 self.image_display.visible = True
                 self.classification_output_section.visible = True
                 self.classification_output_section.collapsed = False

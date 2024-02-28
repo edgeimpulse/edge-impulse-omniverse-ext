@@ -1,5 +1,6 @@
 import asyncio
 import subprocess
+import uuid
 from enum import Enum, auto
 import os
 import tempfile
@@ -9,7 +10,7 @@ import glob
 from omni.kit.widget.viewport.capture import ByteCapture
 import omni.isaac.core.utils.viewports as vp
 import ctypes
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 from concurrent.futures import ThreadPoolExecutor
 import yaml
 from .utils import get_models_directory, is_node_installed
@@ -103,22 +104,22 @@ class Classifier:
         self, image, target_width, target_height, channel_count
     ):
         # Resize the image
-        img_resized = image.resize(
+        self.image = image.resize(
             (target_width, target_height), Image.Resampling.LANCZOS
         )
 
         # Convert the image to the required color space
         if channel_count == 3:  # RGB
-            img_resized = img_resized.convert("RGB")
-            img_array = np.array(img_resized)
+            self.image = self.image.convert("RGB")
+            img_array = np.array(self.image)
             # Extract RGB features as hexadecimal values
             features = [
                 "0x{:02x}{:02x}{:02x}".format(*pixel)
                 for pixel in img_array.reshape(-1, 3)
             ]
         elif channel_count == 1:  # Grayscale
-            img_resized = img_resized.convert("L")
-            img_array = np.array(img_resized)
+            self.image = self.image.convert("L")
+            img_array = np.array(self.image)
             # Repeat the grayscale values to mimic the RGB structure
             features = [
                 "0x{:02x}{:02x}{:02x}".format(pixel, pixel, pixel)
@@ -136,6 +137,7 @@ class Classifier:
     async def __capture_and_process_image(self):
         def on_capture_completed(buffer, buffer_size, width, height, format):
             try:
+                print(f"capture completed width {width} height {height}")
                 image_size = width * height * 4
                 ctypes.pythonapi.PyCapsule_GetPointer.restype = ctypes.POINTER(
                     ctypes.c_byte * image_size
@@ -209,6 +211,8 @@ class Classifier:
             result = await loop.run_in_executor(pool, subprocess_run)
             return result
 
+    # TODO The logic to normalize bouding boxes is not right, so we simply display
+    #      the boxes on the resized image directly
     def __normalize_bounding_boxes(self, bounding_boxes):
         orig_factor = self.original_width / self.original_height
         new_factor = self.new_width / self.new_height
@@ -239,24 +243,53 @@ class Classifier:
         return bounding_boxes
 
     def __draw_bounding_boxes_and_save(self, bounding_boxes):
-        normalized_bounding_boxes = self.__normalize_bounding_boxes(bounding_boxes)
-        # Create a drawing context
         draw = ImageDraw.Draw(self.image)
 
-        # Loop through the bounding boxes and draw them
-        for box in normalized_bounding_boxes:
-            # Extract the bounding box coordinates
-            x, y, width, height = box["x"], box["y"], box["width"], box["height"]
-            # Draw the rectangle
-            draw.rectangle(((x, y), (x + width, y + height)), outline="red", width=3)
+        try:
+            font = ImageFont.truetype("arial.ttf", 10)
+        except IOError:
+            font = ImageFont.load_default()
+            print("Custom font not found. Using default font.")
 
-        # TODO use user defined path to save the image with bounding boxes
-        self.output_image_path = os.path.join(
-            tempfile.gettempdir(), "captured_with_bboxes.png"
-        )
+        # Loop through the bounding boxes and draw them along with labels and confidence values
+        for box in bounding_boxes:
+            x, y, width, height = box["x"], box["y"], box["width"], box["height"]
+            label = box["label"]
+            confidence = box["value"]
+
+            # Draw the bounding box rectangle
+            draw.rectangle(((x, y), (x + width, y + height)), outline="red", width=2)
+
+            # Prepare the label text with confidence
+            label_text = f"{label} ({confidence:.2f})"
+
+            # Calculate the text position to appear above the bounding box
+            text_width, text_height = draw.textsize(label_text, font=font)
+            text_x = x + 5  # A small offset from the left edge of the bounding box
+            text_y = y - text_height  # Above the bounding box with a small offset
+
+            # Ensure the text is not drawn outside the image
+            if text_y < 0:
+                text_y = (
+                    y + height + 5
+                )  # Below the bounding box if there is no space above
+
+            # Draw the text background
+            draw.rectangle(
+                ((text_x - 2, text_y), (text_x + text_width + 2, text_y + text_height)),
+                fill="red",
+            )
+
+            # Draw the label text with confidence
+            draw.text((text_x, text_y), label_text, fill="white", font=font)
+
         # Save the image
+        random_file_name = f"captured_with_bboxes_{uuid.uuid4()}.png"
+        self.output_image_path = os.path.join(tempfile.gettempdir(), random_file_name)
         self.image.save(self.output_image_path)
-        self.log_fn(f"Image with bounding boxes saved to {self.output_image_path}")
+        self.log_fn(
+            f"Image with bounding boxes and labels saved at {self.output_image_path}"
+        )
 
     async def classify(self):
         self.log_fn("Checking and updating model...")
