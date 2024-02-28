@@ -24,7 +24,7 @@ def get_models_directory() -> str:
     models_directory_name = carb.settings.get_settings().get_as_string(
         f"exts/{extension_name}/models_directory"
     )
-    temp_kit_directory = carb.tokens.get_tokens_interface().resolve("${data}")
+    temp_kit_directory = carb.tokens.get_tokens_interface().resolve("${omni_data}")
     models_directory = os.path.join(temp_kit_directory, models_directory_name)
     return models_directory
 

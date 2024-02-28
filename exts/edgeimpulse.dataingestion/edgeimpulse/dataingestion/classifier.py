@@ -54,7 +54,7 @@ class Classifier:
             self.log_fn("Error: Failed to get deployment info")
             return ClassifierError.MODEL_DEPLOYMENT_NOT_AVAILABLE
 
-        current_version = deployment_info["version"]
+        current_version = deployment_info.version
         model_dir_name = f"ei-model-{self.project_id}-{current_version}"
         model_dir = os.path.join(os.path.dirname(self.model_path), model_dir_name)
 

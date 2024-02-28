@@ -1,6 +1,7 @@
 import httpx
 
 from .impulse import Impulse
+from .deployment import DeploymentInfo
 
 
 class EdgeImpulseRestClient:
@@ -28,12 +29,13 @@ class EdgeImpulseRestClient:
                 headers=self.headers,
             )
             if response.status_code == 200 and response.json().get("success"):
-                # Returns the version number if available
+                # Returns the deployment info  if available
                 version = response.json().get("version")
-                return {
-                    "version": version,
-                    "hasDeployment": response.json().get("hasDeployment"),
-                }
+                has_deployment = response.json().get("hasDeployment")
+                return DeploymentInfo(
+                    version=version,
+                    has_deployment=has_deployment,
+                )
             else:
                 # Returns None if the request failed or no deployment info was found
                 return None
@@ -62,6 +64,7 @@ class EdgeImpulseRestClient:
                 if "impulse" in data and data["impulse"].get("inputBlocks"):
                     first_input_block = data["impulse"]["inputBlocks"][0]
                     return Impulse(
+                        input_type=first_input_block.get("type"),
                         image_width=first_input_block.get("imageWidth"),
                         image_height=first_input_block.get("imageHeight"),
                     )

@@ -29,22 +29,7 @@ class EdgeImpulseExtension(omni.ext.IExt):
         except KeyError:
             self.state = State.NO_PROJECT_CONNECTED
 
-        self.project_id = None
-        self.api_key = None
-        self.project_name = None
-
-        self.impulse = None
-
-        self.upload_logs_text = ""
-        self.uploading = False
-
-        self.classify_logs_text = ""
-        self.classification_output_section = None
-        self.classifying = False
-
-        self.training_samples = 0
-        self.testing_samples = 0
-        self.anomaly_samples = 0
+        self.reset_to_initial_state()
 
         self._window = ui.Window("Edge Impulse", width=300, height=300)
 
@@ -61,6 +46,26 @@ class EdgeImpulseExtension(omni.ext.IExt):
         self.setup_ui_no_project_connected()
 
         self.transition_to_state(self.state)
+
+    def reset_to_initial_state(self):
+        self.project_id = None
+        self.api_key = None
+        self.project_name = None
+
+        self.impulse = None
+
+        self.upload_logs_text = ""
+        self.uploading = False
+
+        self.classify_logs_text = ""
+        self.classifying = False
+
+        self.training_samples = 0
+        self.testing_samples = 0
+        self.anomaly_samples = 0
+
+        self.impulse_info = None
+        self.deployment_info = None
 
     def transition_to_state(self, new_state):
         """
@@ -194,23 +199,26 @@ class EdgeImpulseExtension(omni.ext.IExt):
 
     def disconnect(self):
         print("Disconnecting")
-        self.project_id = None
-        self.project_name = None
-        self.api_key = None
+        self.reset_to_initial_state()
         self.config.set("project_id", None)
         self.config.set("project_name", None)
         self.config.set("project_api_key", None)
-        self.image_display.visible = False
+        self.classify_button.visible = False
+        self.ready_for_classification.visible = False
+        self.data_collapsable_frame.collapsed = True
+        self.classification_collapsable_frame.collapsed = True
         self.transition_to_state(State.NO_PROJECT_CONNECTED)
 
     ### Data ingestion
 
     def setup_data_upload_ui(self):
-        collapsable_frame = ui.CollapsableFrame("Data Upload", collapsed=True, height=0)
-        collapsable_frame.set_collapsed_changed_fn(
+        self.data_collapsable_frame = ui.CollapsableFrame(
+            "Data Upload", collapsed=True, height=0
+        )
+        self.data_collapsable_frame.set_collapsed_changed_fn(
             lambda c: asyncio.ensure_future(self.on_data_upload_collapsed_changed(c))
         )
-        with collapsable_frame:
+        with self.data_collapsable_frame:
             with ui.VStack(spacing=10, height=0):
                 with ui.VStack(height=0, spacing=5):
                     self.training_samples_label = ui.Label(
@@ -357,12 +365,35 @@ class EdgeImpulseExtension(omni.ext.IExt):
     ### Classification
 
     def setup_classification_ui(self):
-        with ui.CollapsableFrame("Classification", collapsed=True, height=0):
+        self.classification_collapsable_frame = ui.CollapsableFrame(
+            "Classification", collapsed=True, height=0
+        )
+        self.classification_collapsable_frame.set_collapsed_changed_fn(
+            lambda c: asyncio.ensure_future(self.on_classification_collapsed_changed(c))
+        )
+        with self.classification_collapsable_frame:
             with ui.VStack(spacing=10, height=0):
+                self.impulse_status_label = ui.Label(
+                    "Fetching your Impulse design...", height=20, visible=False
+                )
+
+                self.deployment_status_label = ui.Label(
+                    "Fetching latest model deployment...", height=20, visible=False
+                )
+
+                self.ready_for_classification = ui.Label(
+                    "Your model is ready! You can now run inference on the current scene",
+                    height=20,
+                    visible=False,
+                )
+
+                ui.Spacer(height=20)
+
                 with ui.HStack(height=20):
                     self.classify_button = ui.Button(
-                        "Classify",
+                        "Classify current scene frame",
                         clicked_fn=lambda: asyncio.ensure_future(self.start_classify()),
+                        visible=False,
                     )
 
                 # Scrolling frame for classify logs
@@ -385,6 +416,46 @@ class EdgeImpulseExtension(omni.ext.IExt):
                         height=300,
                     )
                     self.image_display.visible = False
+
+    async def on_classification_collapsed_changed(self, collapsed):
+        if not collapsed:
+            if not self.impulse_info:
+                self.impulse_status_label.visible = True
+                self.impulse_status_label.text = "Fetching your Impulse design..."
+                self.impulse_info = await self.rest_client.get_impulse(self.project_id)
+                if not self.impulse_info:
+                    self.impulse_status_label.text = f"""Your Impulse is not ready yet.\n
+Go to https://studio.edgeimpulse.com/studio/{self.project_id}/create-impulse to configure and train your model"""
+                    return
+                if self.impulse_info.input_type != "image":
+                    self.impulse_info = None
+                    self.impulse_status_label.text = "Invalid Impulse input block type. Only 'image' type is supported"
+                    return
+
+            self.impulse_status_label.text = "Impulse is ready"
+            self.impulse_status_label.visible = False
+
+            if not self.deployment_info or not self.deployment_info.has_deployment:
+                self.deployment_status_label.visible = True
+                self.deployment_status_label.text = (
+                    "Fetching your latest model deployment..."
+                )
+                self.deployment_info = await self.rest_client.get_deployment_info(
+                    self.project_id
+                )
+                if not self.deployment_info.has_deployment:
+                    self.deployment_status_label.text = f"""Your model WebAssembly deployment is not ready yet.\n
+Go to https://studio.edgeimpulse.com/studio/{self.project_id}/deployment to build a WebAssembly deployment"""
+                    return
+            self.deployment_status_label.text = "Model deployment ready"
+            self.deployment_status_label.visible = False
+
+            if self.impulse_info and self.deployment_info:
+                self.classify_button.visible = True
+                self.ready_for_classification.visible = True
+            else:
+                self.classify_button.visible = False
+                self.ready_for_classification.visible = False
 
     def add_classify_logs_entry(self, message):
         self.classify_logs_text += message + "\n"
