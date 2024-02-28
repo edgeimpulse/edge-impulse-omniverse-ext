@@ -39,6 +39,7 @@ class EdgeImpulseExtension(omni.ext.IExt):
         self.uploading = False
 
         self.classify_logs_text = ""
+        self.classification_output_section = None
         self.classifying = False
 
         self.training_samples = 0
@@ -161,9 +162,48 @@ class EdgeImpulseExtension(omni.ext.IExt):
             self.setup_data_upload_ui()
 
             # Classification Section
-            with ui.CollapsableFrame("Classification", collapsed=True, height=0):
-                with ui.VStack(spacing=10, height=0):
-                    self.setup_classification_ui()
+            self.setup_classification_ui()
+
+    def hide_error_message(self):
+        if self.error_message_label:
+            self.error_message_label.text = ""
+            self.error_message_label.visible = False
+
+    def display_error_message(self, message):
+        if self.error_message_label:
+            self.error_message_label.text = message
+            self.error_message_label.visible = True
+
+    async def validate_and_connect_project(self, api_key):
+        self.hide_error_message()
+
+        self.rest_client = EdgeImpulseRestClient(api_key)
+        project_info = await self.rest_client.get_project_info()
+
+        if project_info:
+            print(f"Connected to project: {project_info}")
+            self.config.set("project_id", project_info["id"])
+            self.config.set("project_name", project_info["name"])
+            self.config.set("project_api_key", api_key)
+            self.transition_to_state(State.PROJECT_CONNECTED)
+        else:
+            # Display an error message in the current UI
+            self.display_error_message(
+                "Failed to connect to the project. Please check your API key."
+            )
+
+    def disconnect(self):
+        print("Disconnecting")
+        self.project_id = None
+        self.project_name = None
+        self.api_key = None
+        self.config.set("project_id", None)
+        self.config.set("project_name", None)
+        self.config.set("project_api_key", None)
+        self.image_display.visible = False
+        self.transition_to_state(State.NO_PROJECT_CONNECTED)
+
+    ### Data ingestion
 
     def setup_data_upload_ui(self):
         collapsable_frame = ui.CollapsableFrame("Data Upload", collapsed=True, height=0)
@@ -232,71 +272,6 @@ class EdgeImpulseExtension(omni.ext.IExt):
     async def on_data_upload_collapsed_changed(self, collapsed):
         if not collapsed:
             await self.get_samples_count()
-
-    def setup_classification_ui(self):
-        with ui.HStack(height=20):
-            self.classify_button = ui.Button(
-                "Classify",
-                clicked_fn=lambda: asyncio.ensure_future(self.start_classify()),
-            )
-
-        # Scrolling frame for classify logs
-        self.classify_logs_frame = ui.ScrollingFrame(height=100, visible=False)
-        with self.classify_logs_frame:
-            self.classify_logs_label = ui.Label("", word_wrap=True)
-
-        with ui.HStack(height=20):
-            self.clear_classify_logs_button = ui.Button(
-                "Clear Logs", clicked_fn=self.clear_classify_logs, visible=False
-            )
-
-        self.image_display = ui.Image(
-            "",
-            width=400,
-            height=300,
-        )
-        self.image_display.visible = False
-
-    def hide_error_message(self):
-        if self.error_message_label:
-            self.error_message_label.text = ""
-            self.error_message_label.visible = False
-
-    def display_error_message(self, message):
-        if self.error_message_label:
-            self.error_message_label.text = message
-            self.error_message_label.visible = True
-
-    async def validate_and_connect_project(self, api_key):
-        self.hide_error_message()
-
-        self.rest_client = EdgeImpulseRestClient(api_key)
-        project_info = await self.rest_client.get_project_info()
-
-        if project_info:
-            print(f"Connected to project: {project_info}")
-            self.config.set("project_id", project_info["id"])
-            self.config.set("project_name", project_info["name"])
-            self.config.set("project_api_key", api_key)
-            self.transition_to_state(State.PROJECT_CONNECTED)
-        else:
-            # Display an error message in the current UI
-            self.display_error_message(
-                "Failed to connect to the project. Please check your API key."
-            )
-
-    def disconnect(self):
-        print("Disconnecting")
-        self.project_id = None
-        self.project_name = None
-        self.api_key = None
-        self.config.set("project_id", None)
-        self.config.set("project_name", None)
-        self.config.set("project_api_key", None)
-        self.image_display.visible = False
-        self.transition_to_state(State.NO_PROJECT_CONNECTED)
-
-    ### Data ingestion
 
     def select_folder(self):
         def import_handler(filename: str, dirname: str, selections: list = []):
@@ -381,6 +356,36 @@ class EdgeImpulseExtension(omni.ext.IExt):
 
     ### Classification
 
+    def setup_classification_ui(self):
+        with ui.CollapsableFrame("Classification", collapsed=True, height=0):
+            with ui.VStack(spacing=10, height=0):
+                with ui.HStack(height=20):
+                    self.classify_button = ui.Button(
+                        "Classify",
+                        clicked_fn=lambda: asyncio.ensure_future(self.start_classify()),
+                    )
+
+                # Scrolling frame for classify logs
+                self.classify_logs_frame = ui.ScrollingFrame(height=100, visible=False)
+                with self.classify_logs_frame:
+                    self.classify_logs_label = ui.Label("", word_wrap=True)
+
+                with ui.HStack(height=20):
+                    self.clear_classify_logs_button = ui.Button(
+                        "Clear Logs", clicked_fn=self.clear_classify_logs, visible=False
+                    )
+
+                self.classification_output_section = ui.CollapsableFrame(
+                    "Ouput", collapsed=True, visible=False, height=0
+                )
+                with self.classification_output_section:
+                    self.image_display = ui.Image(
+                        "",
+                        width=400,
+                        height=300,
+                    )
+                    self.image_display.visible = False
+
     def add_classify_logs_entry(self, message):
         self.classify_logs_text += message + "\n"
         self.classify_logs_label.text = self.classify_logs_text
@@ -419,11 +424,13 @@ class EdgeImpulseExtension(omni.ext.IExt):
             try:
                 self.classifying = True
                 self.classify_button.text = "Classifying..."
-
+                self.classification_output_section.visible = False
                 image_path = await self.classifier.classify()
                 corrected_path = image_path[1].replace("\\", "/")
                 self.image_display.source_url = corrected_path
                 self.image_display.visible = True
+                self.classification_output_section.visible = True
+                self.classification_output_section.collapsed = False
             finally:
                 self.classifying = False
                 self.classify_button.text = "Classify"
