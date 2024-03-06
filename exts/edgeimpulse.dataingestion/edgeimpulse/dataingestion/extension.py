@@ -332,7 +332,7 @@ class EdgeImpulseExtension(omni.ext.IExt):
 
             async def upload():
                 await upload_data(
-                    self.config.get("api_key"),
+                    self.config.get("project_api_key"),
                     self.config.get("data_path"),
                     self.config.get("dataset_type"),
                     self.add_upload_logs_entry,

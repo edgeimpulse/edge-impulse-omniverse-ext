@@ -137,7 +137,6 @@ class Classifier:
     async def __capture_and_process_image(self):
         def on_capture_completed(buffer, buffer_size, width, height, format):
             try:
-                print(f"capture completed width {width} height {height}")
                 image_size = width * height * 4
                 ctypes.pythonapi.PyCapsule_GetPointer.restype = ctypes.POINTER(
                     ctypes.c_byte * image_size
