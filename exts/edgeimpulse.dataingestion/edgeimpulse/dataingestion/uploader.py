@@ -4,7 +4,14 @@ import requests
 import os
 
 
-async def upload_data(api_key, data_folder, dataset, log_callback, on_upload_complete):
+async def upload_data(
+    api_key,
+    data_folder,
+    dataset,
+    log_callback,
+    on_sample_upload_success,
+    on_upload_complete,
+):
     dataset_types = ["training", "testing", "anomaly"]
     if dataset not in dataset_types:
         log_callback(
@@ -38,6 +45,7 @@ async def upload_data(api_key, data_folder, dataset, log_callback, on_upload_com
                         )
                         if res.status_code == 200:
                             log_callback(f"Success: {file_path} uploaded successfully.")
+                            on_sample_upload_success()
                         else:
                             log_callback(
                                 f"Error: {file_path} failed to upload. Status Code {res.status_code}: {res.text}"

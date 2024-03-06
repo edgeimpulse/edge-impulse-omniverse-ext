@@ -336,6 +336,7 @@ class EdgeImpulseExtension(omni.ext.IExt):
                     self.config.get("data_path"),
                     self.config.get("dataset_type"),
                     self.add_upload_logs_entry,
+                    lambda: asyncio.ensure_future(self.get_samples_count()),
                     self.on_upload_complete,
                 )
 
