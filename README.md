@@ -1,6 +1,6 @@
 # Edge Impulse Data Ingestion Omniverse Extension
 
-This Omniverse extension allows you to upload data from a specified location on your computer to your Edge Impulse project.
+This Omniverse extension allows you to upload your synthetic datasets to your Edge Impulse project for computer vision tasks, validate your trained model locally, and view inferencing results directly in your Omniverse synthetic environment.
 
 ![preview.png](/exts/edgeimpulse.dataingestion/data/preview.png)
 
