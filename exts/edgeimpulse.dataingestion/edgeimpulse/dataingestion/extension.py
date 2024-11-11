@@ -230,6 +230,14 @@ class EdgeImpulseExtension(omni.ext.IExt):
                     self.anomaly_samples_label = ui.Label(
                         f"Anomaly samples: {self.anomaly_samples}"
                     )
+                ui.Spacer(height=10)
+
+                with ui.HStack(height=10):
+                    ui.Spacer(width=3)
+                    ui.Label("Add Bounding Boxes", width=70)
+                    ui.Spacer(width=5)
+                    self.double_folder_checkbox = ui.CheckBox(checked_fn=self.on_checkbox_changed)
+                    ui.Spacer(width=3)
 
                 with ui.HStack(height=20):
                     ui.Spacer(width=3)
@@ -276,6 +284,9 @@ class EdgeImpulseExtension(omni.ext.IExt):
                     self.clear_upload_logs_button = ui.Button(
                         "Clear Logs", clicked_fn=self.clear_upload_logs, visible=False
                     )
+
+    def on_checkbox_changed(self):
+        pass
 
     async def on_data_upload_collapsed_changed(self, collapsed):
         if not collapsed:

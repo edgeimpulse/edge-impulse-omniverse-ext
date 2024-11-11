@@ -1,9 +1,9 @@
 [package]
 # Semantic Versioning is used: https://semver.org/
-version = "1.0.0"
+version = "2.0.0"
 
 # The title and description fields are primarily for displaying extension info in UI
-title = "Edge Impulse Data Ingestion"
+title = "Edge Impulse Data Ingestion - Ashvin"
 description="Edge Impulse Data Ingestion extension for Omniverse."
 
 # Path (relative to the root) or content of readme markdown file for UI.
