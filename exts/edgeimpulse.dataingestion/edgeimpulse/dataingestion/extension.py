@@ -236,7 +236,9 @@ class EdgeImpulseExtension(omni.ext.IExt):
                     ui.Spacer(width=3)
                     ui.Label("Add Bounding Boxes", width=70)
                     ui.Spacer(width=5)
-                    self.double_folder_checkbox = ui.CheckBox(checked_fn=self.on_checkbox_changed)
+                    self.checkbox = ui.CheckBox(width=20, height=20)
+                    self.checkbox.model.set_value(False)
+                    self.checkbox.model.add_value_changed_fn(self.on_checkbox_changed)
                     ui.Spacer(width=3)
 
                 with ui.HStack(height=20):
@@ -245,6 +247,17 @@ class EdgeImpulseExtension(omni.ext.IExt):
                     ui.Spacer(width=8)
                     data_path = self.config.get("data_path", "No folder selected")
                     self.data_path_display = ui.Label(data_path, width=250)
+                    ui.Spacer(width=10)
+                    ui.Button("Select Folder", clicked_fn=self.select_folder, width=150)
+                    ui.Spacer(width=3)
+
+                self.bounding_box_path = ui.HStack(visible=False, height=20)
+                with self.bounding_box_path:
+                    ui.Spacer(width=3)
+                    ui.Label("Bounding Box Path", width=70)
+                    ui.Spacer(width=8)
+                    data_path = self.config.get("data_path", "No folder selected")
+                    self.bounding_box_path_display = ui.Label(data_path, width=250)
                     ui.Spacer(width=10)
                     ui.Button("Select Folder", clicked_fn=self.select_folder, width=150)
                     ui.Spacer(width=3)
@@ -285,8 +298,8 @@ class EdgeImpulseExtension(omni.ext.IExt):
                         "Clear Logs", clicked_fn=self.clear_upload_logs, visible=False
                     )
 
-    def on_checkbox_changed(self):
-        pass
+    def on_checkbox_changed(self, model):
+        self.bounding_box_path.visible = model.as_bool
 
     async def on_data_upload_collapsed_changed(self, collapsed):
         if not collapsed:
