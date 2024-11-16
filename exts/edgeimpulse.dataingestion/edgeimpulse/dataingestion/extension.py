@@ -10,7 +10,7 @@ from .uploader import upload_data
 from .classifier import Classifier
 from .state import State
 from .client import EdgeImpulseRestClient
-
+from .bbox_processor import process_files
 
 class EdgeImpulseExtension(omni.ext.IExt):
 
@@ -341,7 +341,7 @@ class EdgeImpulseExtension(omni.ext.IExt):
         self.config.set("dataset_type", dataset_type)
 
     def get_dataset_type(self):
-        selected_index = self.dataset_type_dropdown.model.get_value_as_int()
+        selected_index = self.dataset_type_dropdown.model.get_item_value_model().as_int
         dataset_types = ["training", "testing", "anomaly"]
         return dataset_types[selected_index]
 
@@ -360,6 +360,10 @@ class EdgeImpulseExtension(omni.ext.IExt):
         self.upload_logs_frame.visible = self.uploading
 
     def start_upload(self):
+
+        # create info.labels file
+        process_files(self.config.get("bbox_data_path"), self.config.get("data_path"), self.get_dataset_type())
+
         if not self.uploading:  # Prevent multiple uploads at the same time
             self.uploading = True
             self.upload_button.text = "Uploading..."
@@ -369,7 +373,6 @@ class EdgeImpulseExtension(omni.ext.IExt):
                 await upload_data(
                     self.config.get("project_api_key"),
                     self.config.get("data_path"),
-                    # self.config.get("bbox_data_path"), # TODO: create a temp folder with the info/labels files + rgb data and upload that
                     self.config.get("dataset_type"),
                     self.add_upload_logs_entry,
                     lambda: asyncio.ensure_future(self.get_samples_count()),
