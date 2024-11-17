@@ -3,7 +3,10 @@ import numpy as np
 from pathlib import Path
 
 # creates info.labels file with bounding box data
-def process_files(bounding_box_dir, rgb_dir, category):
+def process_files(bounding_box_dir, rgb_dir, category, log_callback):
+
+    log_callback(f"Creating info.labels file...")
+
 
     bounding_box_dir = Path(bounding_box_dir)
     rgb_dir = Path(rgb_dir)
@@ -64,4 +67,17 @@ def process_files(bounding_box_dir, rgb_dir, category):
     with open(info_labels_path, "w") as f:
         json.dump(info_labels_data, f, indent=4)
 
-    print(f"RGB images and info.labels saved in {rgb_dir}")
+    log_callback(f"Success: info.labels file in {rgb_dir}")
+
+# deletes info.labels that was created by the above program
+def post_process_files (rgb_dir, log_callback):
+    log_callback(f"Deleting info.lables file from {rgb_dir}...")
+
+    rgb_dir = Path(rgb_dir)
+    info_labels_path = rgb_dir / "info.labels"
+
+    if info_labels_path.exists():
+        info_labels_path.unlink()
+        log_callback(f"Success: Deleted info.lables file from {rgb_dir}")
+    else:
+        log_callback(f"No info.labels file found in {rgb_dir}")

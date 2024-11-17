@@ -10,7 +10,7 @@ from .uploader import upload_data
 from .classifier import Classifier
 from .state import State
 from .client import EdgeImpulseRestClient
-from .bbox_processor import process_files
+from .bbox_processor import process_files, post_process_files
 
 class EdgeImpulseExtension(omni.ext.IExt):
 
@@ -308,6 +308,8 @@ class EdgeImpulseExtension(omni.ext.IExt):
         else:
             self.path_label.text = "Data Path"
 
+        self.checkbox_model = model
+
     async def on_data_upload_collapsed_changed(self, collapsed):
         if not collapsed:
             await self.get_samples_count()
@@ -361,8 +363,9 @@ class EdgeImpulseExtension(omni.ext.IExt):
 
     def start_upload(self):
 
-        # create info.labels file
-        process_files(self.config.get("bbox_data_path"), self.config.get("data_path"), self.get_dataset_type())
+        # if bbox checkbox checked, create info.labels file
+        if getattr(self, "checkbox_model", None):
+            process_files(self.config.get("bbox_data_path"), self.config.get("data_path"), self.get_dataset_type(), self.add_upload_logs_entry)
 
         if not self.uploading:  # Prevent multiple uploads at the same time
             self.uploading = True
@@ -384,6 +387,10 @@ class EdgeImpulseExtension(omni.ext.IExt):
     def on_upload_complete(self):
         self.uploading = False
         self.upload_button.text = "Upload to Edge Impulse"
+
+        # if bbox checkbox checked, remove info.labels file from directory
+        if getattr(self, "checkbox_model", None):
+            post_process_files(self.config.get("data_path"), self.add_upload_logs_entry)
 
     async def get_samples_count(self):
         self.training_samples = await self.rest_client.get_samples_count(
