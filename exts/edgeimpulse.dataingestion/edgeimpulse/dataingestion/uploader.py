@@ -3,6 +3,7 @@ import asyncio
 import requests
 import os
 
+from .bbox_processor import upload_with_sdk
 
 async def upload_data(
     api_key,
@@ -18,6 +19,11 @@ async def upload_data(
             "Error: Dataset type invalid (must be training, testing, or anomaly)."
         )
         return
+
+    labels_file_path = os.path.join(data_folder, "info.labels")
+    if os.path.isfile(labels_file_path):
+        log_callback("Uploading info.labels...")
+        upload_with_sdk(labels_file_path, data_folder, log_callback, api_key)
 
     url = "https://ingestion.edgeimpulse.com/api/" + dataset + "/files"
     try:

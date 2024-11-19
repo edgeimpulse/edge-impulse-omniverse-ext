@@ -1,6 +1,8 @@
 import json
 import numpy as np
 from pathlib import Path
+import os
+import edgeimpulse as ei
 
 # creates info.labels file with bounding box data
 def process_files(bounding_box_dir, rgb_dir, category, log_callback):
@@ -81,3 +83,53 @@ def post_process_files (rgb_dir, log_callback):
         log_callback(f"Success: Deleted info.lables file from {rgb_dir}")
     else:
         log_callback(f"No info.labels file found in {rgb_dir}")
+
+def upload_with_sdk(labels_file_path, data_folder, log_callback, api_key):
+    ei.API_KEY = api_key
+
+    try:
+
+        with open(labels_file_path, 'r') as f:
+            labels_data = json.load(f)
+
+         # ensure 'files' key exists
+        if 'files' not in labels_data:
+            print("Error: 'files' key not found in info.labels.")
+            return
+
+        # upload each file
+        for entry in labels_data['files']:
+            if 'path' not in entry:
+                print("Error: Missing 'path' in one of the entries in info.labels.")
+                continue
+
+            file_path = os.path.join(data_folder, entry["path"])
+            label = os.path.basename(file_path).split(".")[0]
+
+            if os.path.isfile(file_path):
+
+                with open(file_path, "rb") as file_data:
+
+                    # sample object
+                    sample = ei.experimental.data.Sample(
+                        filename=os.path.basename(file_path),
+                        data=file_data.read(),
+                        label=label,
+                        bounding_boxes=entry.get("boundingBoxes", []),
+                        metadata=entry.get("metadata", {})
+                    )
+
+                    # upload using python SDK
+                    response = ei.experimental.data.upload_samples([sample])
+
+                    # check for failed uploads
+                    if len(response.fails) == 0:
+                        print(f"Success: {file_path} uploaded successfully.")
+                    else:
+                        print(f"Error: Could not upload {file_path}.")
+
+    except FileNotFoundError:
+        log_callback("Error: Data path invalid.")
+    except json.JSONDecodeError:
+        log_callback("Error: .labels file could not be parsed.")
+    log_callback("Upload complete.")
