@@ -365,7 +365,7 @@ class EdgeImpulseExtension(omni.ext.IExt):
 
         # if bbox checkbox checked, create info.labels file
         if getattr(self, "checkbox_model", None):
-            process_files(self.config.get("bbox_data_path"), self.config.get("data_path"), self.get_dataset_type(), self.add_upload_logs_entry)
+            process_files(self.config.get("bbox_data_path"), self.config.get("data_path"), self.add_upload_logs_entry)
 
         if not self.uploading:  # Prevent multiple uploads at the same time
             self.uploading = True
@@ -388,7 +388,7 @@ class EdgeImpulseExtension(omni.ext.IExt):
         self.uploading = False
         self.upload_button.text = "Upload to Edge Impulse"
 
-        # if bbox checkbox checked, remove info.labels file from directory
+        # if bbox checkbox checked, remove bounding_boxes.labels file from directory
         if getattr(self, "checkbox_model", None):
             post_process_files(self.config.get("data_path"), self.add_upload_logs_entry)
 
