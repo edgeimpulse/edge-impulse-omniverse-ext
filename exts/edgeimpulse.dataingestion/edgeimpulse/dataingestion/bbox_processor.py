@@ -2,7 +2,7 @@ import json
 import numpy as np
 from pathlib import Path
 
-# creates bounding_boxes.labels file with bounding box data
+# creates bounding_boxes.labels file with bounding box data inside rgb folder
 def process_files(bounding_box_dir, rgb_dir, log_callback):
     log_callback(f"Creating bounding_boxes.labels file...")
 
