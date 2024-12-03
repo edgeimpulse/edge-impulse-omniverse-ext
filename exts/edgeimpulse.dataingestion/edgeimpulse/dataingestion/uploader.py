@@ -10,6 +10,7 @@ async def upload_data(
     log_callback,
     on_sample_upload_success,
     on_upload_complete,
+    checkbox,
 ):
     dataset_types = ["training", "testing", "anomaly"]
     if dataset not in dataset_types:
@@ -36,7 +37,7 @@ async def upload_data(
                         ]
 
                         # if bounding_boxes.labels exists, open and append it to the files list
-                        if os.path.isfile(bounding_boxes_file_path):
+                        if os.path.isfile(bounding_boxes_file_path) and checkbox:
                             bbox_file = open(bounding_boxes_file_path, "rb") 
                             files.append(
                                 ("data", ("bounding_boxes.labels", bbox_file, "multipart/form-data"))

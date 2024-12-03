@@ -363,8 +363,8 @@ class EdgeImpulseExtension(omni.ext.IExt):
 
     def start_upload(self):
 
-        # if bbox checkbox checked, create info.labels file
-        if getattr(self, "checkbox_model", None):
+        # if bbox checkbox checked, create bounding_boxes.labels file
+        if (self.bounding_box_path.visible):
             process_files(self.config.get("bbox_data_path"), self.config.get("data_path"), self.add_upload_logs_entry)
 
         if not self.uploading:  # Prevent multiple uploads at the same time
@@ -380,6 +380,7 @@ class EdgeImpulseExtension(omni.ext.IExt):
                     self.add_upload_logs_entry,
                     lambda: asyncio.ensure_future(self.get_samples_count()),
                     self.on_upload_complete,
+                    self.bounding_box_path.visible,
                 )
 
             asyncio.ensure_future(upload())
@@ -389,7 +390,7 @@ class EdgeImpulseExtension(omni.ext.IExt):
         self.upload_button.text = "Upload to Edge Impulse"
 
         # if bbox checkbox checked, remove bounding_boxes.labels file from directory
-        if getattr(self, "checkbox_model", None):
+        if (self.bounding_box_path.visible):
             post_process_files(self.config.get("data_path"), self.add_upload_logs_entry)
 
     async def get_samples_count(self):
