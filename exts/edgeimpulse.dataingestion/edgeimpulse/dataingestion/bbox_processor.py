@@ -40,6 +40,11 @@ def process_files(bounding_box_dir, rgb_dir, log_callback):
         # prepare bbox data for bounding_boxes.labels
         bounding_boxes_entry = []
         for i, bbox in enumerate(bounding_boxes):
+            key = str(i)
+            if key not in labels:
+                log_callback(f"Warning: Missing label for key {key}. Skipping.")
+                continue  # skip this bounding box if the key is missing 
+
             label = labels[str(i)]["class"]
             x_min = int(bbox["x_min"])
             y_min = int(bbox["y_min"])
