@@ -10,7 +10,7 @@ from .uploader import upload_data
 from .classifier import Classifier
 from .state import State
 from .client import EdgeImpulseRestClient
-
+from .bbox_processor import process_files, post_process_files
 
 class EdgeImpulseExtension(omni.ext.IExt):
 
@@ -230,15 +230,38 @@ class EdgeImpulseExtension(omni.ext.IExt):
                     self.anomaly_samples_label = ui.Label(
                         f"Anomaly samples: {self.anomaly_samples}"
                     )
+                ui.Spacer(height=10)
+
+                with ui.HStack(height=10):
+                    ui.Spacer(width=3)
+                    ui.Label("Add Bounding Boxes", width=70)
+                    ui.Spacer(width=5)
+                    self.checkbox = ui.CheckBox(width=20, height=20)
+                    self.checkbox.model.set_value(False)
+                    self.checkbox.model.add_value_changed_fn(self.on_checkbox_changed)
+                    ui.Spacer(width=3)
 
                 with ui.HStack(height=20):
                     ui.Spacer(width=3)
-                    ui.Label("Data Path", width=70)
+
+                    self.path_label = ui.Label("Data Path", width=70) # switch between "Data Path" and "RGB Path"
+
                     ui.Spacer(width=8)
                     data_path = self.config.get("data_path", "No folder selected")
                     self.data_path_display = ui.Label(data_path, width=250)
                     ui.Spacer(width=10)
-                    ui.Button("Select Folder", clicked_fn=self.select_folder, width=150)
+                    ui.Button("Select Folder", clicked_fn=lambda: self.select_folder("data"), width=150)
+                    ui.Spacer(width=3)
+
+                self.bounding_box_path = ui.HStack(visible=False, height=20)
+                with self.bounding_box_path:
+                    ui.Spacer(width=3)
+                    ui.Label("Bounding Box Path", width=70)
+                    ui.Spacer(width=8)
+                    bbox_data_path = self.config.get("bbox_data_path", "No folder selected")
+                    self.bbox_path_display = ui.Label(bbox_data_path, width=250)
+                    ui.Spacer(width=10)
+                    ui.Button("Select Folder", clicked_fn=lambda: self.select_folder("bbox"), width=150)
                     ui.Spacer(width=3)
 
                 with ui.HStack(height=20):
@@ -277,21 +300,35 @@ class EdgeImpulseExtension(omni.ext.IExt):
                         "Clear Logs", clicked_fn=self.clear_upload_logs, visible=False
                     )
 
+    def on_checkbox_changed(self, model):
+        self.bounding_box_path.visible = model.as_bool
+
+        if model.as_bool:
+            self.path_label.text = "RGB Path"
+        else:
+            self.path_label.text = "Data Path"
+
+        self.checkbox_model = model
+
     async def on_data_upload_collapsed_changed(self, collapsed):
         if not collapsed:
             await self.get_samples_count()
 
-    def select_folder(self):
+    def select_folder(self, path_type="data"):
         def import_handler(filename: str, dirname: str, selections: list = []):
             if dirname:
-                self.data_path_display.text = dirname
-                EdgeImpulseExtension.config.set("data_path", dirname)
+                if path_type == "data":
+                    self.data_path_display.text = dirname
+                    EdgeImpulseExtension.config.set("data_path", dirname)
+                elif path_type == "bbox":
+                    self.bbox_path_display.text = dirname
+                    EdgeImpulseExtension.config.set("bbox_data_path", dirname)
             else:
                 print("No folder selected")
 
         file_importer = get_file_importer()
         file_importer.show_window(
-            title="Select Data Folder",
+            title="Select Folder",
             show_only_folders=True,
             import_handler=import_handler,
             import_button_label="Select",
@@ -306,7 +343,7 @@ class EdgeImpulseExtension(omni.ext.IExt):
         self.config.set("dataset_type", dataset_type)
 
     def get_dataset_type(self):
-        selected_index = self.dataset_type_dropdown.model.get_value_as_int()
+        selected_index = self.dataset_type_dropdown.model.get_item_value_model().as_int
         dataset_types = ["training", "testing", "anomaly"]
         return dataset_types[selected_index]
 
@@ -325,6 +362,11 @@ class EdgeImpulseExtension(omni.ext.IExt):
         self.upload_logs_frame.visible = self.uploading
 
     def start_upload(self):
+
+        # if bbox checkbox checked, create bounding_boxes.labels file
+        if (self.bounding_box_path.visible):
+            process_files(self.config.get("bbox_data_path"), self.config.get("data_path"), self.add_upload_logs_entry)
+
         if not self.uploading:  # Prevent multiple uploads at the same time
             self.uploading = True
             self.upload_button.text = "Uploading..."
@@ -338,6 +380,7 @@ class EdgeImpulseExtension(omni.ext.IExt):
                     self.add_upload_logs_entry,
                     lambda: asyncio.ensure_future(self.get_samples_count()),
                     self.on_upload_complete,
+                    self.bounding_box_path.visible,
                 )
 
             asyncio.ensure_future(upload())
@@ -345,6 +388,10 @@ class EdgeImpulseExtension(omni.ext.IExt):
     def on_upload_complete(self):
         self.uploading = False
         self.upload_button.text = "Upload to Edge Impulse"
+
+        # if bbox checkbox checked, remove bounding_boxes.labels file from directory
+        if (self.bounding_box_path.visible):
+            post_process_files(self.config.get("data_path"), self.add_upload_logs_entry)
 
     async def get_samples_count(self):
         self.training_samples = await self.rest_client.get_samples_count(
