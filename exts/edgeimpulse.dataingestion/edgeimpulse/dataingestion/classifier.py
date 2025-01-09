@@ -263,15 +263,16 @@ class Classifier:
             label_text = f"{label} ({confidence:.2f})"
 
             # Calculate the text position to appear above the bounding box
-            text_width, text_height = draw.textsize(label_text, font=font)
+            text_bbox = draw.textbbox((0, 0), label_text, font=font)  # Get text bounding box
+            text_width = text_bbox[2] - text_bbox[0]  # Width of the text
+            text_height = text_bbox[3] - text_bbox[1]  # Height of the text
+
             text_x = x + 5  # A small offset from the left edge of the bounding box
             text_y = y - text_height  # Above the bounding box with a small offset
 
             # Ensure the text is not drawn outside the image
             if text_y < 0:
-                text_y = (
-                    y + height + 5
-                )  # Below the bounding box if there is no space above
+                text_y = y + height + 5  # Below the bounding box if there is no space above
 
             # Draw the text background
             draw.rectangle(

@@ -10,7 +10,7 @@ This Omniverse extension allows you to upload your synthetic datasets to your Ed
 
 * Install [Omniverse Launcher](https://docs.omniverse.nvidia.com/launcher/latest/installing_launcher.html)
 * Install Isaac Sim from the Omniverse launcher
-* For Windows installation, make sure to install the [C/C++ build tools from VSCode 2022]( https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022)
+* For Windows installation, make sure to install the [Build Tools for Visual Studio](https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022) and select the Desktop Development with C++ and NodeJS. A restart of your computer may be required to apply the changes.
 * Download this repository
 
 ### Setup
